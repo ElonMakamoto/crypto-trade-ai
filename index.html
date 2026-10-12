@@ -8,41 +8,29 @@
 <body>
 <h1>Crypto Trade AI</h1>
 <div class="disclaimer">⚠️ 교육용. 투자 조언 아님. 높은 위험.</div>
-<p>BTC • ETH • BNB • SOL • DOGE • ALGO + 기타 (스테이블/특정 코인 제외)</p>
+<p>BTC • ETH • BNB • SOL • ALGO • DOGE • SHIB • PEPE • FLOKI • BONK</p>
 <button onclick="loadAll()">새로고침</button>
 <div id="status">Loading...</div>
 <div class="card" id="fng">Fear & Greed: Loading...</div>
 <table><thead><tr><th>코인</th><th>가격</th><th>24h</th><th>7d</th><th>시그널</th><th>AI 분석</th></tr></thead><tbody id="tbody"></tbody></table>
 <script>
 let coinsData=[], fng=50;
-const EXCLUDE_SYMBOLS = ['usdt','usdc','usds','usd1','dai','xrp','trx','zec','figr_heloc','leo','wbt'];
-const FORCE_IDS = ['bitcoin','ethereum','binancecoin','solana','dogecoin','algorand'];
+const FORCE_IDS = [
+  'bitcoin','ethereum','binancecoin','solana','algorand',
+  'dogecoin','shiba-inu','pepe','floki','bonk'
+];
 
 async function loadAll(){
   document.getElementById('status').textContent='분석 중...';
-  const [markets, fngRes] = await Promise.all([
-    fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=40&page=1&price_change_percentage=24h,7d').then(r=>r.json()),
+  const [forceRes, fngRes] = await Promise.all([
+    fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids='+FORCE_IDS.join(',')+'&price_change_percentage=24h,7d').then(r=>r.json()),
     fetch('https://api.alternative.me/fng/?limit=1').then(r=>r.json())
   ]);
   fng = Number(fngRes.data[0].value);
   document.getElementById('fng').innerHTML='Fear & Greed: <strong>'+fng+'</strong> ('+fngRes.data[0].value_classification+')';
 
-  // Force-fetch required coins by id
-  const forceRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids='+FORCE_IDS.join(',')+'&price_change_percentage=24h,7d').then(r=>r.json());
-  const forceMap = Object.fromEntries(forceRes.map(c => [c.id, c]));
-
-  // Build clean list: start with forced, then fill with others excluding bad ones
-  let list = [];
-  for (const id of FORCE_IDS) {
-    if (forceMap[id]) list.push(forceMap[id]);
-  }
-  for (const c of markets) {
-    if (list.length >= 10) break;
-    if (EXCLUDE_SYMBOLS.includes(c.symbol.toLowerCase())) continue;
-    if (list.find(x => x.id === c.id)) continue;
-    list.push(c);
-  }
-  coinsData = list.slice(0, 10);
+  const map = Object.fromEntries(forceRes.map(c => [c.id, c]));
+  coinsData = FORCE_IDS.map(id => map[id]).filter(Boolean);
   await render();
   document.getElementById('status').textContent='업데이트: '+new Date().toLocaleTimeString();
 }
