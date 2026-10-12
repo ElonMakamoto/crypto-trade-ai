@@ -8,17 +8,14 @@
 <body>
 <h1>Crypto Trade AI</h1>
 <div class="disclaimer">⚠️ 교육용. 투자 조언 아님. 높은 위험.</div>
-<p>BTC • ETH • BNB • SOL • ALGO • DOGE • SHIB • PEPE • FLOKI • BONK</p>
+<p>BTC • ETH • DOGE • ALGO • SOL • SHIB • HAMI</p>
 <button onclick="loadAll()">새로고침</button>
 <div id="status">Loading...</div>
 <div class="card" id="fng">Fear & Greed: Loading...</div>
 <table><thead><tr><th>코인</th><th>가격</th><th>24h</th><th>7d</th><th>시그널</th><th>AI 분석</th></tr></thead><tbody id="tbody"></tbody></table>
 <script>
 let coinsData=[], fng=50;
-const FORCE_IDS = [
-  'bitcoin','ethereum','binancecoin','solana','algorand',
-  'dogecoin','shiba-inu','pepe','floki','bonk'
-];
+const FORCE_IDS = ['bitcoin','ethereum','dogecoin','algorand','solana','shiba-inu','hami'];
 
 async function loadAll(){
   document.getElementById('status').textContent='분석 중...';
