@@ -17,6 +17,14 @@
 let coinsData=[], fng=50;
 const FORCE_IDS = ['bitcoin','ethereum','dogecoin','algorand','solana','shiba-inu','hami'];
 
+function formatPrice(p) {
+  if (!p || isNaN(p)) return '$0';
+  if (p >= 1) return '$' + p.toLocaleString(undefined, {maximumFractionDigits: 2});
+  if (p >= 0.01) return '$' + p.toFixed(4);
+  if (p >= 0.0001) return '$' + p.toFixed(6);
+  return '$' + p.toFixed(8);
+}
+
 async function loadAll(){
   document.getElementById('status').textContent='분석 중...';
   const [forceRes, fngRes] = await Promise.all([
@@ -63,7 +71,7 @@ async function render(){
     const [lab,cls]=signal(c);
     const a=await ai(c);
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><strong>${c.name}</strong> (${c.symbol.toUpperCase()})</td><td>$${Number(c.current_price).toLocaleString()}</td><td class="${(c.price_change_percentage_24h||0)>=0?'positive':'negative'}">${(c.price_change_percentage_24h||0).toFixed(2)}%</td><td class="${(c.price_change_percentage_7d_in_currency||0)>=0?'positive':'negative'}">${(c.price_change_percentage_7d_in_currency||0).toFixed(2)}%</td><td><span class="signal ${cls}">${lab}</span></td><td class="ai-box">${a}</td>`;
+    tr.innerHTML=`<td><strong>${c.name}</strong> (${c.symbol.toUpperCase()})</td><td>${formatPrice(c.current_price)}</td><td class="${(c.price_change_percentage_24h||0)>=0?'positive':'negative'}">${(c.price_change_percentage_24h||0).toFixed(2)}%</td><td class="${(c.price_change_percentage_7d_in_currency||0)>=0?'positive':'negative'}">${(c.price_change_percentage_7d_in_currency||0).toFixed(2)}%</td><td><span class="signal ${cls}">${lab}</span></td><td class="ai-box">${a}</td>`;
     tb.appendChild(tr);
   }
 }
