@@ -9,7 +9,7 @@ AI-powered trading assistant that studies the **Top 1-10 cryptocurrencies by mar
 - Easy management via this website + GitHub
 
 ## Live Site
-(Coming soon - will deploy to Cloudflare Pages)
+https://crypto-trade-ai.pages.dev/ (Cloudflare Pages, auto-deployed from `main`)
 
 ## Data Source
 CoinGecko free API (no key required for basic market data)
