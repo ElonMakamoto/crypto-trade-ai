@@ -8,40 +8,55 @@
 <body>
 <h1>Crypto Trade AI</h1>
 <div class="disclaimer">⚠️ 교육용. 투자 조언 아님. 높은 위험.</div>
-<p>Top 10 • AI 뉴스 분석 + 기술적 시그널</p>
+<p>AI 뉴스 분석 + 기술적 시그널 (USDT/USDC/XRP/ZEC/Figure 제외, ALGO+DOGE 포함)</p>
 <button onclick="loadAll()">새로고침</button>
 <div id="status">Loading...</div>
 <div class="card" id="fng">Fear & Greed: Loading...</div>
-<table><thead><tr><th>#</th><th>코인</th><th>가격</th><th>24h</th><th>7d</th><th>시그널</th><th>AI 분석</th></tr></thead><tbody id="tbody"></tbody></table>
+<table><thead><tr><th>코인</th><th>가격</th><th>24h</th><th>7d</th><th>시그널</th><th>AI 분석</th></tr></thead><tbody id="tbody"></tbody></table>
 <script>
 let coinsData=[], fng=50;
+const EXCLUDE = ['usdt','usdc','figr_heloc','xrp','zec'];
+const MUST_INCLUDE = ['algo','doge'];
+
 async function loadAll(){
   document.getElementById('status').textContent='분석 중...';
-  const [m,f] = await Promise.all([
-    fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1&price_change_percentage=24h,7d').then(r=>r.json()),
+  const [markets, fngRes] = await Promise.all([
+    fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&price_change_percentage=24h,7d').then(r=>r.json()),
     fetch('https://api.alternative.me/fng/?limit=1').then(r=>r.json())
   ]);
-  coinsData=m;
-  fng=Number(f.data[0].value);
-  document.getElementById('fng').innerHTML='Fear & Greed: <strong>'+fng+'</strong> ('+f.data[0].value_classification+')';
+  fng = Number(fngRes.data[0].value);
+  document.getElementById('fng').innerHTML='Fear & Greed: <strong>'+fng+'</strong> ('+fngRes.data[0].value_classification+')';
+
+  let filtered = markets.filter(c => !EXCLUDE.includes(c.symbol.toLowerCase()) && c.id !== 'figr-heloc');
+  // Ensure must-include coins are present
+  for (const sym of MUST_INCLUDE) {
+    if (!filtered.find(c => c.symbol.toLowerCase() === sym)) {
+      const extra = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids='+sym+'&price_change_percentage=24h,7d').then(r=>r.json());
+      if (extra.length) filtered.push(extra[0]);
+    }
+  }
+  // Limit to ~10
+  coinsData = filtered.slice(0, 10);
   await render();
   document.getElementById('status').textContent='업데이트: '+new Date().toLocaleTimeString();
 }
+
 function signal(c){
   let s=0; const c24=c.price_change_percentage_24h||0, c7=c.price_change_percentage_7d_in_currency||0;
   if(c24>3)s+=2; else if(c24>0)s+=1; else if(c24<-3)s-=2; else if(c24<0)s-=1;
   if(c7>5)s+=1; else if(c7<-5)s-=1;
-  if(c.total_volume/c.market_cap>0.08)s+=1;
+  if(c.total_volume && c.market_cap && c.total_volume/c.market_cap>0.08)s+=1;
   if(fng>75)s-=1; if(fng<25)s+=1;
   if(s>=3) return ['매수 관심','buy'];
   if(s<=-2) return ['주의','caution'];
   return ['관망','hold'];
 }
+
 async function ai(c){
   try{
     const r=await fetch('https://cryptocurrency.cv/api/search?q='+encodeURIComponent(c.symbol)+'&limit=2');
     const d=await r.json();
-    const titles=(d.articles||[]).map(a=>a.title).join(' | ').slice(0,150);
+    const titles=(d.articles||[]).map(a=>a.title).join(' | ').slice(0,140);
     const ch=c.price_change_percentage_24h||0;
     let sum= ch>3?'상승 모멘텀. ':ch<-3?'조정 중. ':'횡보. ';
     sum += titles ? '뉴스: '+titles : '뉴스 적음';
@@ -49,6 +64,7 @@ async function ai(c){
     return sum+'<br><small>리스크: '+risk+'</small>';
   }catch(e){return '분석 실패';}
 }
+
 async function render(){
   const tb=document.getElementById('tbody');
   tb.innerHTML='';
@@ -56,10 +72,11 @@ async function render(){
     const [lab,cls]=signal(c);
     const a=await ai(c);
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${c.market_cap_rank}</td><td><strong>${c.name}</strong> (${c.symbol.toUpperCase()})</td><td>$${c.current_price.toLocaleString()}</td><td class="${(c.price_change_percentage_24h||0)>=0?'positive':'negative'}">${(c.price_change_percentage_24h||0).toFixed(2)}%</td><td class="${(c.price_change_percentage_7d_in_currency||0)>=0?'positive':'negative'}">${(c.price_change_percentage_7d_in_currency||0).toFixed(2)}%</td><td><span class="signal ${cls}">${lab}</span></td><td class="ai-box">${a}</td>`;
+    tr.innerHTML=`<td><strong>${c.name}</strong> (${c.symbol.toUpperCase()})</td><td>$${c.current_price.toLocaleString()}</td><td class="${(c.price_change_percentage_24h||0)>=0?'positive':'negative'}">${(c.price_change_percentage_24h||0).toFixed(2)}%</td><td class="${(c.price_change_percentage_7d_in_currency||0)>=0?'positive':'negative'}">${(c.price_change_percentage_7d_in_currency||0).toFixed(2)}%</td><td><span class="signal ${cls}">${lab}</span></td><td class="ai-box">${a}</td>`;
     tb.appendChild(tr);
   }
 }
+
 loadAll();
 </script>
 </body>
