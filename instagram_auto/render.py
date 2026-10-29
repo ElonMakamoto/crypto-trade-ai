@@ -161,6 +161,23 @@ def fact_slide(photo_path, text, highlight, index, total, out_path):
     return out_path
 
 
+def question_slide(photo_path, out_path, index, total):
+    """Engagement slide used when a story has nothing more to tell: keeps carousels at 3+ slides."""
+    W, H = 1080, 1350
+    img = Image.new("RGB", (W, H), (0, 0, 0))
+    photo = load_photo(photo_path, (W, H)).filter(ImageFilter.GaussianBlur(12))
+    img.paste(Image.eval(photo, lambda v: int(v * 0.35)), (0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.text((W // 2, H // 2 - 90), "WHAT DO YOU", font=_font(HEADLINE_FONT, 140), fill=(255, 255, 255), anchor="mm")
+    draw.text((W // 2, H // 2 + 60), "THINK?", font=_font(HEADLINE_FONT, 170), fill=_hex(config.ACCENT_COLOR), anchor="mm")
+    draw.text((W // 2, H // 2 + 220), "TELL US IN THE COMMENTS", font=_font(BRAND_FONT, 42, "ExtraBold"),
+              fill=(255, 255, 255), anchor="mm")
+    _counter(img, index, total)
+    draw_brand(img, (W // 2, H - 45))
+    img.save(out_path, "JPEG", quality=92)
+    return out_path
+
+
 def cta_slide(out_path, index, total):
     """Last carousel slide: follow call-to-action."""
     W, H = 1080, 1350

@@ -70,14 +70,16 @@ def build_album(pick, story, workdir, stamp):
     slides = ai.write_slides(pick, story, ctx["text"], n=MAX_FACT_SLIDES)
     queries = [pick.get("image_query", "")] + [sl.get("image_query", "") for sl in slides] + [story["title"]]
     photos = gather_photos(story, ctx, queries, 1 + len(slides), workdir, "post")
-    if not slides:  # nothing to tell beyond the headline: a single post
-        return [render.feed_post(photos[0], pick["headline"], pick.get("highlight"), workdir / f"post-{stamp}.jpg")]
-    total = len(slides) + 2
+    # nothing more to tell than the headline: a comment slide keeps the carousel at 3 slides
+    total = max(len(slides), 1) + 2
     images = [render.feed_post(photos[0], pick["headline"], pick.get("highlight"),
                                workdir / f"post-{stamp}-1.jpg", swipe=True)]
     for i, (slide, photo) in enumerate(zip(slides, photos[1:]), start=2):
         images.append(render.fact_slide(photo, slide["text"], slide.get("highlight"), i, total,
                                         workdir / f"post-{stamp}-{i}.jpg"))
+    if not slides:
+        print("[main] no story details found — adding a comment slide")
+        images.append(render.question_slide(photos[0], workdir / f"post-{stamp}-2.jpg", 2, total))
     images.append(render.cta_slide(workdir / f"post-{stamp}-{total}.jpg", total, total))
     return images
 

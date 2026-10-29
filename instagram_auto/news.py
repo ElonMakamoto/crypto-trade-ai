@@ -4,7 +4,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import requests
 
@@ -32,11 +32,16 @@ def _parse(xml_text):
         if source and title.endswith(f" - {source}"):
             title = title[: -len(source) - 3]
         pub = item.findtext("pubDate")
+        # the description lists other outlets' headlines for the same story: <li><a>headline</a> <font>source</font>
+        desc = item.findtext("description", "")
+        related = [(html.unescape(re.sub(r"<[^>]+>", "", h)).strip(), html.unescape(src).strip())
+                   for h, src in re.findall(r"<a [^>]*>(.*?)</a>(?:&nbsp;|\s)*<font[^>]*>(.*?)</font>", desc, re.S)]
         items.append({
             "title": title.strip(),
             "link": item.findtext("link", ""),
             "source": source,
             "published": parsedate_to_datetime(pub).isoformat() if pub else "",
+            "related": [(h, src) for h, src in related if h and h.lower() != title.strip().lower()],
         })
     return items
 
@@ -104,9 +109,14 @@ def article_context(story):
     """The publisher article behind a story: its photo and readable text (for grounded slides)."""
     url = resolve_google_news(story["link"])
     ctx = {"url": url, "image": None, "text": ""}
+    host = urlparse(url).netloc
+    if host.endswith("news.google.com"):
+        print("[news] could not resolve the Google News link to the article")
+        return ctx
     try:
         page = requests.get(url, headers=UA, timeout=20, allow_redirects=True).text
-    except requests.RequestException:
+    except requests.RequestException as e:
+        print(f"[news] article {host} unreachable ({type(e).__name__})")
         return ctx
 
     def meta(name):
@@ -121,11 +131,27 @@ def article_context(story):
                   for p in re.findall(r"<p[^>]*>(.*?)</p>", page, re.S | re.I)]
     body = " ".join(p for p in paragraphs if len(p) > 60)
     ctx["text"] = (meta("og:description") + "\n" + body)[:4000].strip()
+    print(f"[news] article {host}: {len(ctx['text'])} chars of text, photo {'yes' if ctx['image'] else 'no'}")
     return ctx
 
 
+STOPWORDS = {"the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with", "at", "by", "from", "is", "are",
+             "was", "were", "be", "has", "have", "had", "now", "what", "why", "how", "who", "after", "says", "new"}
+
+
 def wikimedia_images(query, limit=5):
-    """Freely licensed photos from Wikimedia Commons matching the query (best first)."""
+    """Freely licensed photos for the query; long queries that match nothing are retried with key words."""
+    words = [w for w in re.findall(r"[\w'-]+", query) if w.lower() not in STOPWORDS and len(w) > 2]
+    names = [w for w in words if w[0].isupper()]
+    attempts = [query, " ".join(names[:3]), " ".join(names[:2]), " ".join(words[:2]), (names or words or [""])[0]]
+    for attempt in dict.fromkeys(a for a in attempts if a):
+        found = _wikimedia_search(attempt, limit)
+        if found:
+            return found
+    return []
+
+
+def _wikimedia_search(query, limit):
     try:
         r = requests.get(
             "https://commons.wikimedia.org/w/api.php",

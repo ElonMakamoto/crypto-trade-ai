@@ -35,8 +35,8 @@ def _headers():
     return {"x-goog-api-key": config.GOOGLE_API_KEY}
 
 
-def _available_flash_model():
-    """Newest Gemini Flash model this key can use (models get retired over time)."""
+def _available_flash_model(fast=False):
+    """Newest Gemini Flash model this key can use (models get retired over time); fast=True prefers Lite."""
     r = requests.get(f"{GEMINI_API}/models", headers=_headers(), params={"pageSize": 200}, timeout=30)
     r.raise_for_status()
     names = [m["name"].split("/", 1)[1] for m in r.json().get("models", [])
@@ -45,12 +45,15 @@ def _available_flash_model():
     stable = [n for n in flash if not any(x in n for x in ("preview", "exp"))] or flash
 
     def version(name):
-        return [int(x) for x in re.findall(r"\d+", name)[:2]] + [-("lite" in name)]
+        lite = "lite" in name
+        return [int(x) for x in re.findall(r"\d+", name)[:2]] + [lite if fast else -lite]
 
+    if fast and any("lite" in n for n in stable):
+        stable = [n for n in stable if "lite" in n]
     return max(stable, key=version) if stable else None
 
 
-def _generate(model, prompt):
+def _generate(model, prompt, timeout=150):
     return requests.post(
         f"{GEMINI_API}/models/{model}:generateContent",
         headers=_headers(),
@@ -58,22 +61,32 @@ def _generate(model, prompt):
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0.8},
         },
-        timeout=90,
+        timeout=timeout,
     )
 
 
+def _switch_model(fast, reason):
+    model = _available_flash_model(fast=fast)
+    if not model or model == config.GEMINI_MODEL:
+        raise ValueError(f"no other Gemini model to try ({reason})")
+    print(f"[ai] {config.GEMINI_MODEL} {reason} — switching to {model}")
+    saved = config.load_settings()
+    saved["GEMINI_MODEL"] = model
+    config.save_settings(saved)
+    return model
+
+
 def _gemini(prompt):
-    r = _generate(config.GEMINI_MODEL, prompt)
+    model = config.GEMINI_MODEL
+    print(f"[ai] asking {model}...")
+    try:
+        r = _generate(model, prompt)
+    except requests.Timeout:
+        # slow model: move to a faster (Lite) one for this and future rounds
+        r = _generate(_switch_model(True, "timed out"), prompt, timeout=120)
     if r.status_code == 404:
         # configured model no longer exists: switch to a current one and remember it
-        model = _available_flash_model()
-        if not model:
-            raise ValueError("no Gemini Flash model available for this API key")
-        print(f"[ai] {config.GEMINI_MODEL} is not available, using {model}")
-        saved = config.load_settings()
-        saved["GEMINI_MODEL"] = model
-        config.save_settings(saved)
-        r = _generate(model, prompt)
+        r = _generate(_switch_model(False, "is not available"), prompt)
     if not r.ok:
         try:
             detail = r.json()["error"]["message"]
@@ -114,10 +127,12 @@ def write_slides(pick, story, article_text, n=4):
                 return slides[:n]
         except (requests.RequestException, KeyError, ValueError) as e:
             print(f"[ai] slides failed ({e}) — using article sentences")
-    # no AI or no article text: quote the article's own first sentences
+    # no AI: quote the article's own sentences, then other outlets' headlines on the same story
     words = re.findall(r"[A-Z][\w'-]+", story["title"])
-    return [{"text": sentence, "highlight": [], "image_query": " ".join(words[i:i + 3]) or story["title"]}
-            for i, sentence in enumerate(_sentences(article_text)[:n])]
+    texts = _sentences(article_text)[:n]
+    texts += [f"{src.upper()}: {headline}" for headline, src in story.get("related", [])][:n - len(texts)]
+    return [{"text": text, "highlight": [], "image_query": " ".join(words[i:i + 3]) or story["title"]}
+            for i, text in enumerate(texts)]
 
 
 def _fallback(stories, n):

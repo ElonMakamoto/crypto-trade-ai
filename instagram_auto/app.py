@@ -43,7 +43,7 @@ FIELDS = [
     ("POST_MODE", "올릴 것", "mode"),
     ("MUSIC_DIR", "릴스 배경음악 폴더 (선택)", "folder"),
 ]
-MODES = {"both": "게시물 + 릴스", "post": "게시물만", "reel": "릴스만"}
+MODES = {"reel": "릴스만 (추천)", "post": "게시물만 (3~6장 슬라이드)", "both": "게시물 + 릴스 (다른 주제 2개)"}
 BACKENDS = {"graph": "공식 API (추천)", "instagrapi": "아이디 / 비밀번호 (비공식)"}
 CHOICES = {"mode": MODES, "backend": BACKENDS}
 # which fields each login method needs
@@ -81,7 +81,7 @@ class App:
         self.stop_event = threading.Event()
         self.auto_thread = None
         self.next_run = None
-        self.preview_img = None
+        self.preview_imgs = []
 
         root.title(APP_NAME)
         root.geometry("980x720")
@@ -191,8 +191,11 @@ class App:
         body.grid(row=2, column=0, sticky="nsew")
         body.columnconfigure(1, weight=1)
         body.rowconfigure(0, weight=1)
-        self.preview = ttk.Label(body, text="미리보기\n(아직 없음)", anchor="center", width=28, relief="groove")
+        # thumbnails of every slide (and the reel cover) from the last round
+        self.preview = ttk.Frame(body, relief="groove", padding=6, width=250)
         self.preview.grid(row=0, column=0, sticky="ns", padx=(0, 10))
+        self.preview.grid_propagate(False)
+        ttk.Label(self.preview, text="미리보기\n(아직 없음)", anchor="center").grid(row=0, column=0, padx=60, pady=200)
         self.log = scrolledtext.ScrolledText(body, height=20, font=("Consolas", 9), state="disabled", wrap="word")
         self.log.grid(row=0, column=1, sticky="nsew")
 
@@ -306,9 +309,14 @@ class App:
             print(f"\n=== {datetime.now():%Y-%m-%d %H:%M} {'미리보기' if dry_run else '업로드'} 시작 ===\n")
             uploader = None if dry_run else poster.get_poster(self.ask_code)
             made = bot.run_once(dry_run=dry_run, poster=uploader)
-            images = [m for m in made if m.suffix == ".jpg"] or [m.with_suffix(".jpg") for m in made]
-            if images and images[0].exists():
-                self.root.after(0, self.show_preview, images[0])
+            # slide images as they are, videos by their cover frame
+            images = [m if m.suffix == ".jpg" else m.with_suffix(".jpg") for m in made]
+            images = [m for m in images if m.exists()]
+            if images:
+                self.root.after(0, self.show_preview, images)
+                slides = sum(1 for m in made if m.name.startswith("post-"))
+                if slides:
+                    print(f"게시물 슬라이드 {slides}장 (미리보기 왼쪽, 순서대로)\n")
             print("=== 완료 ===\n")
         except Exception as e:
             print(f"❌ 실패: {e}\n")
@@ -401,11 +409,24 @@ class App:
             return "🟢 자동 업로드 켜짐"
         return "⚪ 대기 중 · '자동 업로드 시작'을 누르세요"
 
-    def show_preview(self, path):
-        img = Image.open(path)
-        img.thumbnail((230, 300))
-        self.preview_img = ImageTk.PhotoImage(img)
-        self.preview.config(image=self.preview_img, text="")
+    def show_preview(self, paths):
+        for child in self.preview.winfo_children():
+            child.destroy()
+        self.preview_imgs = []
+        for i, path in enumerate(paths[:8]):
+            img = Image.open(path)
+            img.thumbnail((112, 140))
+            photo = ImageTk.PhotoImage(img)
+            self.preview_imgs.append(photo)  # keep references so Tk doesn't drop the images
+            label = ttk.Label(self.preview, image=photo, cursor="hand2")
+            label.grid(row=i // 2, column=i % 2, padx=3, pady=3)
+            label.bind("<Button-1>", lambda e, p=path: self.open_file(p))
+
+    def open_file(self, path):
+        if sys.platform == "win32":
+            os.startfile(path)
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
 
     def _poll_log(self):
         chunks = []
