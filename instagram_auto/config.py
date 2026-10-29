@@ -42,8 +42,10 @@ DEFAULTS = {
     "IG_PASSWORD": "",
     "IG_ACCESS_TOKEN": "",
     "IG_USER_ID": "",
-    "GRAPH_VERSION": "v21.0",
-    # Graph API needs a public URL serving output/ images for feed posts (reels upload directly)
+    "GRAPH_VERSION": "v21.0",  # graph.instagram.com (IG... tokens)
+    "FB_GRAPH_VERSION": "v23.0",  # graph.facebook.com (EAA... tokens)
+    # Optional public URL serving output/ files: lets the API take photos by image_url and videos by video_url
+    # (without it, reels are uploaded from the PC and photo designs go up as short still reels)
     "PUBLIC_MEDIA_BASE_URL": "",
     # "both" (feed post + reel), "post", or "reel"
     "POST_MODE": "both",
