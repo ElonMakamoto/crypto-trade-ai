@@ -45,6 +45,7 @@ COMMON_FIELDS = [
 CHANNEL_FIELDS = [
     ("ENABLED", "이 채널 사용", "check"),
     ("IG_USER_ID", "인스타 비즈니스 계정 ID", "text"),
+    ("CHANNEL_TOKEN", "이 채널 전용 Meta 토큰 (선택 — 비우면 공통 탭의 토큰 사용)", "secret"),
     ("BRAND_HANDLE", "이미지에 넣을 계정명 (예: @chedlab888)", "text"),
     ("POST_TIMES", "자동 업로드 시간 (최대 5개)", "times"),
     ("POST_MODE", "자동 업로드 때 올릴 것", MODES),
@@ -181,7 +182,7 @@ class SettingsWindow:
                 make_field(tab, kind, var).grid(row=row * 2 + 1, column=0, sticky="ew")
             written = {"English": "영어", "Korean": "한국어", "Japanese": "일본어"}[meta["language"]]
             note = (f"글은 {written}로 쓰고, 시간은 {meta['tz_label']} 기준입니다. "
-                    "Meta 토큰은 공통 탭의 것을 씁니다.")
+                    "전용 토큰을 비우면 공통 탭의 Meta 토큰을 씁니다.")
             ttk.Label(tab, text=note, foreground="#666").grid(row=len(CHANNEL_FIELDS) * 2, column=0, sticky="w",
                                                               pady=(14, 4))
             ttk.Button(tab, text="이 계정 연결 확인", command=lambda c=cid: self.check(c)).grid(
@@ -499,7 +500,7 @@ class App:
         values, name = config.load_channel(cid, saved), config.CHANNELS[cid]["name"]
         if not values["ENABLED"]:
             return warn(f"{name} 채널이 꺼져 있습니다. ⚙ 설정에서 켜 주세요.")
-        if not (saved.get("IG_ACCESS_TOKEN") or os.environ.get("IG_ACCESS_TOKEN")):
+        if not (values["CHANNEL_TOKEN"] or saved.get("IG_ACCESS_TOKEN") or os.environ.get("IG_ACCESS_TOKEN")):
             return warn("⚙ 설정 → 공통 탭에 Meta 액세스 토큰을 넣어 주세요.")
         if cid != "en" and not values["IG_USER_ID"]:
             return warn(f"⚙ 설정 → {name} 탭에 인스타 비즈니스 계정 ID를 넣어 주세요.")

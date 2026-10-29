@@ -109,7 +109,9 @@ CHANNELS = {
     "ja": {"name": "日本語", "language": "Japanese", "tz": "Asia/Seoul", "tz_label": "한국시간"},
 }
 CHANNEL_DEFAULTS = {"ENABLED": "", "IG_USER_ID": "", "BRAND_HANDLE": "@yourpage",
-                    "POST_TIMES": "09:00,12:00,15:00,18:00,21:00", "POST_MODE": "alternate"}
+                    "POST_TIMES": "09:00,12:00,15:00,18:00,21:00", "POST_MODE": "alternate",
+                    # optional: a token just for this channel's account (empty = the shared token)
+                    "CHANNEL_TOKEN": ""}
 ACTIVE_CHANNEL = None
 _BASE_OUTPUT_DIR, _BASE_STATE_FILE = OUTPUT_DIR, STATE_FILE
 
@@ -124,6 +126,10 @@ def load_channel(cid, saved=None):
         if cid not in channels:
             values.update({k: saved[k] for k in CHANNEL_DEFAULTS if saved.get(k)})
     values.update({k: str(v) for k, v in channels.get(cid, {}).items() if k in CHANNEL_DEFAULTS})
+    if values["CHANNEL_TOKEN"]:
+        import secure_store
+
+        values["CHANNEL_TOKEN"] = secure_store.decrypt(values["CHANNEL_TOKEN"])
     return values
 
 
@@ -131,6 +137,10 @@ def save_channel(cid, values):
     saved = load_settings()
     channels = saved.get("CHANNELS") if isinstance(saved.get("CHANNELS"), dict) else {}
     channels[cid] = {k: str(values.get(k, "")).strip() for k in CHANNEL_DEFAULTS}
+    if channels[cid]["CHANNEL_TOKEN"]:
+        import secure_store
+
+        channels[cid]["CHANNEL_TOKEN"] = secure_store.encrypt(channels[cid]["CHANNEL_TOKEN"])
     saved["CHANNELS"] = channels
     save_settings(saved)
 
@@ -154,6 +164,8 @@ def _apply(cid, saved):
     g.update(CHANNEL=cid, CHANNEL_INDEX=list(CHANNELS).index(cid), POST_LANGUAGE=meta["language"],
              TIMEZONE=meta["tz"], BRAND_HANDLE=values["BRAND_HANDLE"], IG_USER_ID=values["IG_USER_ID"],
              POST_TIMES=values["POST_TIMES"], POST_MODE=values["POST_MODE"])
+    if values["CHANNEL_TOKEN"]:
+        g["IG_ACCESS_TOKEN"] = values["CHANNEL_TOKEN"]
     # each channel keeps its own output folder and posted-stories record
     g["OUTPUT_DIR"] = _BASE_OUTPUT_DIR / cid
     g["STATE_FILE"] = _BASE_STATE_FILE if cid == "en" else _BASE_STATE_FILE.with_name(f"posted_{cid}.json")
