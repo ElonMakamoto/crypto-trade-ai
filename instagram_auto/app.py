@@ -40,10 +40,10 @@ FIELDS = [
     ("BRAND_HANDLE", "이미지에 넣을 계정명", "text"),
     ("ACCENT_COLOR", "강조 색상", "color"),
     ("INTERVAL_HOURS", "업로드 간격 (시간)", "text"),
-    ("POST_MODE", "올릴 것", "mode"),
+    ("POST_MODE", "자동 업로드 때 올릴 것", "mode"),
     ("MUSIC_DIR", "릴스 배경음악 폴더 (선택)", "folder"),
 ]
-MODES = {"both": "게시물 + 릴스", "post": "게시물만", "reel": "릴스만"}
+MODES = {"alternate": "하나씩 번갈아 (릴스 → 게시물)", "reel": "릴스만", "post": "게시물만 (3~6장 슬라이드)"}
 BACKENDS = {"graph": "공식 API (추천)", "instagrapi": "아이디 / 비밀번호 (비공식)"}
 CHOICES = {"mode": MODES, "backend": BACKENDS}
 # which fields each login method needs
@@ -81,12 +81,13 @@ class App:
         self.stop_event = threading.Event()
         self.auto_thread = None
         self.next_run = None
-        self.preview_img = None
+        self.preview_imgs = []
 
         root.title(APP_NAME)
-        root.geometry("980x720")
-        root.minsize(860, 660)
+        root.geometry("1100x720")
+        root.minsize(1060, 660)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self._migrate_settings()
         self._style()
         self._build()
         self._load_values()
@@ -180,7 +181,8 @@ class App:
         controls.grid(row=0, column=0, sticky="ew")
         self.auto_btn = ttk.Button(controls, text="▶ 자동 업로드 시작", style="Accent.TButton", command=self.toggle_auto)
         self.auto_btn.pack(side="left")
-        ttk.Button(controls, text="지금 바로 올리기", command=lambda: self.run_now(dry_run=False)).pack(side="left", padx=6)
+        ttk.Button(controls, text="🎬 릴스 올리기", command=lambda: self.run_now(dry_run=False, only="reel")).pack(side="left", padx=(6, 0))
+        ttk.Button(controls, text="🖼 게시물 올리기", command=lambda: self.run_now(dry_run=False, only="post")).pack(side="left", padx=6)
         ttk.Button(controls, text="미리보기만 만들기", command=lambda: self.run_now(dry_run=True)).pack(side="left")
         ttk.Button(controls, text="결과 폴더", command=self.open_output).pack(side="left", padx=6)
 
@@ -191,12 +193,24 @@ class App:
         body.grid(row=2, column=0, sticky="nsew")
         body.columnconfigure(1, weight=1)
         body.rowconfigure(0, weight=1)
-        self.preview = ttk.Label(body, text="미리보기\n(아직 없음)", anchor="center", width=28, relief="groove")
+        # thumbnails of every slide (and the reel cover) from the last round
+        self.preview = ttk.Frame(body, relief="groove", padding=6, width=250)
         self.preview.grid(row=0, column=0, sticky="ns", padx=(0, 10))
+        self.preview.grid_propagate(False)
+        ttk.Label(self.preview, text="미리보기\n(아직 없음)", anchor="center").grid(row=0, column=0, padx=60, pady=200)
         self.log = scrolledtext.ScrolledText(body, height=20, font=("Consolas", 9), state="disabled", wrap="word")
         self.log.grid(row=0, column=1, sticky="nsew")
 
     # ---------- settings ----------
+    def _migrate_settings(self):
+        """Once: users on the old two-per-round default move to one upload per round, alternating."""
+        saved = config.load_settings()
+        if saved and not saved.get("MODE_MIGRATED"):
+            if saved.get("POST_MODE") == "both":
+                saved["POST_MODE"] = "alternate"
+            saved["MODE_MIGRATED"] = "1"
+            config.save_settings(saved)
+
     def _show_login_fields(self):
         needed = BACKEND_FIELDS.get(self.vars["IG_BACKEND"].get(), set())
         for key in set().union(*BACKEND_FIELDS.values()):
@@ -297,18 +311,24 @@ class App:
         done.wait()
         return answer["code"].strip()
 
-    def _round(self, dry_run):
+    def _round(self, dry_run, only=None):
         if not self.busy.acquire(blocking=False):
             print("이미 실행 중입니다. 끝날 때까지 기다려 주세요.\n")
             return
         try:
-            self._set_status("미리보기 만드는 중..." if dry_run else "뉴스 찾고 업로드하는 중...")
+            what = {"reel": "릴스", "post": "게시물"}.get(only, "")
+            self._set_status("미리보기 만드는 중..." if dry_run else f"뉴스 찾고 {what or ''} 업로드하는 중...")
             print(f"\n=== {datetime.now():%Y-%m-%d %H:%M} {'미리보기' if dry_run else '업로드'} 시작 ===\n")
             uploader = None if dry_run else poster.get_poster(self.ask_code)
-            made = bot.run_once(dry_run=dry_run, poster=uploader)
-            images = [m for m in made if m.suffix == ".jpg"] or [m.with_suffix(".jpg") for m in made]
-            if images and images[0].exists():
-                self.root.after(0, self.show_preview, images[0])
+            made = bot.run_once(dry_run=dry_run, poster=uploader, only=only)
+            # slide images as they are, videos by their cover frame
+            images = [m if m.suffix == ".jpg" else m.with_suffix(".jpg") for m in made]
+            images = [m for m in images if m.exists()]
+            if images:
+                self.root.after(0, self.show_preview, images)
+                slides = sum(1 for m in made if m.name.startswith("post-"))
+                if slides:
+                    print(f"게시물 슬라이드 {slides}장 (미리보기 왼쪽, 순서대로)\n")
             print("=== 완료 ===\n")
         except Exception as e:
             print(f"❌ 실패: {e}\n")
@@ -317,12 +337,12 @@ class App:
             self.busy.release()
             self._set_status(None)
 
-    def run_now(self, dry_run):
+    def run_now(self, dry_run, only=None):
         if not self.save(quiet=True):
             return
         if not dry_run and not self._ready():
             return
-        threading.Thread(target=self._round, args=(dry_run,), daemon=True).start()
+        threading.Thread(target=self._round, args=(dry_run, only), daemon=True).start()
 
     def _ready(self):
         if config.IG_BACKEND == "graph" and not config.IG_ACCESS_TOKEN:
@@ -401,11 +421,24 @@ class App:
             return "🟢 자동 업로드 켜짐"
         return "⚪ 대기 중 · '자동 업로드 시작'을 누르세요"
 
-    def show_preview(self, path):
-        img = Image.open(path)
-        img.thumbnail((230, 300))
-        self.preview_img = ImageTk.PhotoImage(img)
-        self.preview.config(image=self.preview_img, text="")
+    def show_preview(self, paths):
+        for child in self.preview.winfo_children():
+            child.destroy()
+        self.preview_imgs = []
+        for i, path in enumerate(paths[:8]):
+            img = Image.open(path)
+            img.thumbnail((112, 140))
+            photo = ImageTk.PhotoImage(img)
+            self.preview_imgs.append(photo)  # keep references so Tk doesn't drop the images
+            label = ttk.Label(self.preview, image=photo, cursor="hand2")
+            label.grid(row=i // 2, column=i % 2, padx=3, pady=3)
+            label.bind("<Button-1>", lambda e, p=path: self.open_file(p))
+
+    def open_file(self, path):
+        if sys.platform == "win32":
+            os.startfile(path)
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
 
     def _poll_log(self):
         chunks = []

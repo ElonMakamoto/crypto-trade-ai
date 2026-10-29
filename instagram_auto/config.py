@@ -47,8 +47,9 @@ DEFAULTS = {
     # Optional public URL serving output/ files: lets the API take photos by image_url and videos by video_url
     # (without it, reels are uploaded from the PC and photo designs go up as short still reels)
     "PUBLIC_MEDIA_BASE_URL": "",
-    # "both" (feed post + reel), "post", or "reel"
-    "POST_MODE": "both",
+    # "alternate" (one per round: reel, then 3-6 slide carousel, then reel...), "reel" or "post"
+    # ("both" — a carousel and a reel each round — is still accepted from .env, not offered in the app)
+    "POST_MODE": "alternate",
     "INTERVAL_HOURS": "5",
     "REEL_SECONDS": "8",
     "MUSIC_DIR": "",

@@ -35,8 +35,8 @@ def _headers():
     return {"x-goog-api-key": config.GOOGLE_API_KEY}
 
 
-def _available_flash_model():
-    """Newest Gemini Flash model this key can use (models get retired over time)."""
+def _available_flash_model(fast=False):
+    """Newest Gemini Flash model this key can use (models get retired over time); fast=True prefers Lite."""
     r = requests.get(f"{GEMINI_API}/models", headers=_headers(), params={"pageSize": 200}, timeout=30)
     r.raise_for_status()
     names = [m["name"].split("/", 1)[1] for m in r.json().get("models", [])
@@ -45,12 +45,15 @@ def _available_flash_model():
     stable = [n for n in flash if not any(x in n for x in ("preview", "exp"))] or flash
 
     def version(name):
-        return [int(x) for x in re.findall(r"\d+", name)[:2]] + [-("lite" in name)]
+        lite = "lite" in name
+        return [int(x) for x in re.findall(r"\d+", name)[:2]] + [lite if fast else -lite]
 
+    if fast and any("lite" in n for n in stable):
+        stable = [n for n in stable if "lite" in n]
     return max(stable, key=version) if stable else None
 
 
-def _generate(model, prompt):
+def _generate(model, prompt, timeout=150):
     return requests.post(
         f"{GEMINI_API}/models/{model}:generateContent",
         headers=_headers(),
@@ -58,22 +61,32 @@ def _generate(model, prompt):
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0.8},
         },
-        timeout=90,
+        timeout=timeout,
     )
 
 
+def _switch_model(fast, reason):
+    model = _available_flash_model(fast=fast)
+    if not model or model == config.GEMINI_MODEL:
+        raise ValueError(f"no other Gemini model to try ({reason})")
+    print(f"[ai] {config.GEMINI_MODEL} {reason} — switching to {model}")
+    saved = config.load_settings()
+    saved["GEMINI_MODEL"] = model
+    config.save_settings(saved)
+    return model
+
+
 def _gemini(prompt):
-    r = _generate(config.GEMINI_MODEL, prompt)
+    model = config.GEMINI_MODEL
+    print(f"[ai] asking {model}...")
+    try:
+        r = _generate(model, prompt)
+    except requests.Timeout:
+        # slow model: move to a faster (Lite) one for this and future rounds
+        r = _generate(_switch_model(True, "timed out"), prompt, timeout=120)
     if r.status_code == 404:
         # configured model no longer exists: switch to a current one and remember it
-        model = _available_flash_model()
-        if not model:
-            raise ValueError("no Gemini Flash model available for this API key")
-        print(f"[ai] {config.GEMINI_MODEL} is not available, using {model}")
-        saved = config.load_settings()
-        saved["GEMINI_MODEL"] = model
-        config.save_settings(saved)
-        r = _generate(model, prompt)
+        r = _generate(_switch_model(False, "is not available"), prompt)
     if not r.ok:
         try:
             detail = r.json()["error"]["message"]
@@ -84,40 +97,74 @@ def _gemini(prompt):
     return json.loads(re.sub(r"^```(?:json)?|```$", "", text.strip()))
 
 
-SLIDES_PROMPT = """You make Instagram carousel slides for a viral news page in the style of @pubity.
+DETAILS_PROMPT = """You write for a viral Instagram news page in the style of @pubity.
 Story headline: {headline}
 Article text (the ONLY source of facts; never add anything that is not in it):
 ---
 {text}
 ---
-Write {n} short slides that tell the story step by step after the headline slide, in {lang}.
-Each slide: one or two punchy sentences, max 22 words, using only facts from the article text.
-If the article text has fewer facts, return fewer slides (minimum 1).
-For each slide also give 1-2 words to colour as accent (exact substrings) and a 2-5 word photo search
-query for a DIFFERENT photo per slide (people, places or things named in that slide).
-Respond with JSON only: {{"slides": [{{"text": "...", "highlight": ["..."], "image_query": "..."}}]}}
+Write in {lang}:
+1. "caption": a detailed Instagram caption, 4-6 sentences: what happened, the key facts, numbers and names,
+   and why it matters, then one question that invites comments. 1-3 fitting emojis. No hashtags in it.
+2. "hashtags": exactly 5 hashtags without '#': 3 specific to this story (people, places, organisations,
+   events), then 2 broader topic ones (e.g. news, worldnews, sports). No spaces inside a hashtag.
+3. "slides": {n} short carousel slides that tell the story step by step after the headline slide.
+   Each: one or two punchy sentences, max 22 words, only facts from the article text; if there are fewer
+   facts, return fewer slides. For each slide give "highlight" (1-2 words to colour, exact substrings) and
+   "image_query" (2-5 words to search a DIFFERENT photo per slide: people, places or things in that slide).
+   {slides_note}
+Respond with JSON only:
+{{"caption": "...", "hashtags": ["..."], "slides": [{{"text": "...", "highlight": ["..."], "image_query": "..."}}]}}
 """
+
+TOPIC_TAGS = {
+    "WORLD": ["worldnews", "globalnews", "international"],
+    "ENTERTAINMENT": ["entertainment", "celebrity", "popculture", "celebritynews"],
+    "SPORTS": ["sports", "sportsnews", "athlete"],
+    "TECHNOLOGY": ["tech", "technology", "technews", "innovation"],
+    "SCIENCE": ["science", "sciencenews", "discovery"],
+    "TOP": ["topnews", "headlines"],
+}
 
 
 def _sentences(text):
     return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if 40 <= len(s.strip()) <= 180]
 
 
-def write_slides(pick, story, article_text, n=4):
-    """Fact slides for a carousel, written only from the article text."""
-    if config.GOOGLE_API_KEY and len(article_text) > 200:
-        try:
-            data = _gemini(SLIDES_PROMPT.format(headline=pick["headline"], text=article_text[:4000], n=n,
-                                                lang=config.POST_LANGUAGE))
-            slides = [sl for sl in data.get("slides", []) if sl.get("text")]
-            if slides:
-                return slides[:n]
-        except (requests.RequestException, KeyError, ValueError) as e:
-            print(f"[ai] slides failed ({e}) — using article sentences")
-    # no AI or no article text: quote the article's own first sentences
+def _fallback_details(pick, story, article_text, n):
+    """No AI: caption and slides from the article's own sentences and other outlets' headlines."""
+    sentences = _sentences(article_text)
+    related = [f"{r[1]}: {r[0]}" for r in story.get("related", [])]
     words = re.findall(r"[A-Z][\w'-]+", story["title"])
-    return [{"text": sentence, "highlight": [], "image_query": " ".join(words[i:i + 3]) or story["title"]}
-            for i, sentence in enumerate(_sentences(article_text)[:n])]
+    slide_texts = (sentences[:n] + [r.split(": ", 1)[0].upper() + ": " + r.split(": ", 1)[1] for r in related])[:n]
+    body = " ".join(sentences[:5]) or story["title"] + "."
+    more = "\n".join(f"• {r}" for r in related[:3])
+    caption = f"{body}\n\n{more}\n\nWhat do you think? 👇".replace("\n\n\n\n", "\n\n") if more else \
+        f"{body}\n\nWhat do you think? 👇"
+    names = [w for w in words if len(w) > 2 and w.lower() not in ("the", "and", "now", "what", "why", "how")]
+    # 3 from the story's names, then the topic and general news
+    hashtags = (["".join(names[:2])] + names[:2])[:3] + TOPIC_TAGS.get(story.get("topic", "TOP"), [])[:1] + ["news"]
+    return {
+        "caption": caption,
+        "hashtags": hashtags,
+        "slides": [{"text": t, "highlight": [], "image_query": " ".join(words[i:i + 3]) or story["title"]}
+                   for i, t in enumerate(slide_texts)],
+    }
+
+
+def write_details(pick, story, article_text, n_slides=4):
+    """Detailed caption, hashtags and (for carousels) fact slides — written only from the article text."""
+    if config.GOOGLE_API_KEY and len(article_text) > 200:
+        note = "" if n_slides else "Return an empty slides list."
+        try:
+            data = _gemini(DETAILS_PROMPT.format(headline=pick["headline"], text=article_text[:4000], n=n_slides,
+                                                 slides_note=note, lang=config.POST_LANGUAGE))
+            if data.get("caption"):
+                data["slides"] = [sl for sl in data.get("slides", []) if sl.get("text")][:n_slides]
+                return data
+        except (requests.RequestException, KeyError, ValueError) as e:
+            print(f"[ai] details failed ({e}) — using article sentences")
+    return _fallback_details(pick, story, article_text, n_slides)
 
 
 def _fallback(stories, n):
