@@ -34,14 +34,16 @@ def _parse(xml_text):
         pub = item.findtext("pubDate")
         # the description lists other outlets' headlines for the same story: <li><a>headline</a> <font>source</font>
         desc = item.findtext("description", "")
-        related = [(html.unescape(re.sub(r"<[^>]+>", "", h)).strip(), html.unescape(src).strip())
-                   for h, src in re.findall(r"<a [^>]*>(.*?)</a>(?:&nbsp;|\s)*<font[^>]*>(.*?)</font>", desc, re.S)]
+        related = [(html.unescape(re.sub(r"<[^>]+>", "", h)).strip(), html.unescape(src).strip(), html.unescape(link))
+                   for link, h, src in re.findall(r'<a [^>]*href="([^"]+)"[^>]*>(.*?)</a>(?:&nbsp;|\s)*<font[^>]*>(.*?)</font>',
+                                                  desc, re.S)]
         items.append({
             "title": title.strip(),
             "link": item.findtext("link", ""),
             "source": source,
             "published": parsedate_to_datetime(pub).isoformat() if pub else "",
-            "related": [(h, src) for h, src in related if h and h.lower() != title.strip().lower()],
+            # (headline, source, link) of other outlets covering the same story
+            "related": [r for r in related if r[0] and r[0].lower() != title.strip().lower()],
         })
     return items
 
@@ -168,6 +170,57 @@ def _wikimedia_search(query, limit):
         return [u for u in urls if u][:limit]
     except (requests.RequestException, ValueError):
         return []
+
+
+def wikipedia_images(query, limit=3):
+    """Lead photos of the Wikipedia pages matching the query (people, places, organisations)."""
+    if not query:
+        return []
+    try:
+        r = requests.get(
+            f"https://{config.NEWS_LANGUAGE or 'en'}.wikipedia.org/w/api.php",
+            params={"action": "query", "format": "json", "generator": "search", "gsrsearch": query,
+                    "gsrlimit": limit, "prop": "pageimages", "piprop": "thumbnail", "pithumbsize": 1600},
+            headers=WIKI_UA, timeout=20,
+        )
+        pages = sorted(r.json().get("query", {}).get("pages", {}).values(), key=lambda p: p.get("index", 99))
+        return [p["thumbnail"]["source"] for p in pages if p.get("thumbnail", {}).get("source")]
+    except (requests.RequestException, ValueError, KeyError):
+        return []
+
+
+def related_images(story, limit=3):
+    """Photos from other outlets' articles on the same story."""
+    urls = []
+    for _headline, _source, link in story.get("related", [])[:limit]:
+        image = _og_image(resolve_google_news(link))
+        if image:
+            urls.append(image)
+    return urls
+
+
+def key_names(text):
+    """Proper-noun phrases from a headline, longest first ("Christine Lagarde", "European Central Bank")."""
+    words = re.findall(r"[\w'’-]+", text)
+    phrases, current = [], []
+    for w in words + [""]:
+        if w[:1].isupper() and w.lower() not in STOPWORDS:
+            current.append(w)
+        else:
+            if current:
+                phrases.append(" ".join(current))
+            current = []
+    return sorted(dict.fromkeys(phrases), key=len, reverse=True)
+
+
+def cover_candidates(story, ctx, query):
+    """Photo URLs for the cover, best first: the article's photo, Wikipedia lead photos of the people/places
+    named, other outlets' photos, then Wikimedia Commons."""
+    yield from [ctx["image"]] if ctx.get("image") else []
+    for name in ([query] if query else []) + key_names(story["title"])[:3]:
+        yield from wikipedia_images(name, 2)
+    yield from related_images(story)
+    yield from wikimedia_images(query or story["title"], 3)
 
 
 def find_image_url(story, keywords=""):

@@ -134,7 +134,7 @@ def _sentences(text):
 def _fallback_details(pick, story, article_text, n):
     """No AI: caption and slides from the article's own sentences and other outlets' headlines."""
     sentences = _sentences(article_text)
-    related = [f"{src}: {headline}" for headline, src in story.get("related", [])]
+    related = [f"{r[1]}: {r[0]}" for r in story.get("related", [])]
     words = re.findall(r"[A-Z][\w'-]+", story["title"])
     slide_texts = (sentences[:n] + [r.split(": ", 1)[0].upper() + ": " + r.split(": ", 1)[1] for r in related])[:n]
     body = " ".join(sentences[:5]) or story["title"] + "."

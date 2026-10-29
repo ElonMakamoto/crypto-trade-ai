@@ -57,15 +57,33 @@ def build_caption(pick, story, details):
     return f"{text}{follow}{source}\n\n{' '.join(tags[:HASHTAGS])}".strip()[:2200]
 
 
-def gather_photos(story, ctx, queries, needed, workdir, tag):
-    """`needed` different photos: the article's own image, then Wikimedia photos for each query; text cards fill gaps."""
-    results = [news.wikimedia_images(q, 4) for q in dict.fromkeys(q for q in queries if q)]
-    urls = [ctx["image"]] if ctx.get("image") else []
+def find_cover(story, ctx, query, workdir, tag):
+    """A real photo related to the story for the front, or None if none can be found."""
+    tried = set()
+    for url in news.cover_candidates(story, ctx, query):
+        if url in tried:
+            continue
+        tried.add(url)
+        dest = workdir / f"{tag}_cover.img"
+        try:
+            news.download_image(url, dest)
+            render.load_photo(dest, (64, 64))  # validate it opens
+            return dest, url
+        except Exception as e:  # bad download or unreadable image
+            print(f"[main] cover photo skipped ({e})")
+    return None, None
+
+
+def gather_photos(story, ctx, queries, needed, workdir, tag, cover=None, cover_url=None):
+    """`needed` different photos starting with the cover; Wikimedia photos per query; text cards fill gaps."""
+    queries = list(dict.fromkeys(q for q in queries if q))
+    results = [news.wikipedia_images(q, 2) + news.wikimedia_images(q, 3) for q in queries]
+    urls = [ctx["image"]] if ctx.get("image") and ctx["image"] != cover_url else []
     for rank in range(4):  # one photo per query first, so slides about different things get different photos
         for found in results:
             if rank < len(found) and found[rank] not in urls:
                 urls.append(found[rank])
-    photos = []
+    photos = [cover] if cover else []
     for url in urls:
         if len(photos) == needed:
             break
@@ -84,11 +102,11 @@ def gather_photos(story, ctx, queries, needed, workdir, tag):
     return photos
 
 
-def build_album(pick, story, ctx, details, workdir, stamp):
+def build_album(pick, story, ctx, details, cover, workdir, stamp):
     """Cover + 2-4 fact slides (each with its own photo) + follow slide = 3-6 images."""
     slides = details["slides"]
-    queries = [pick.get("image_query", "")] + [sl.get("image_query", "") for sl in slides] + [story["title"]]
-    photos = gather_photos(story, ctx, queries, 1 + len(slides), workdir, "post")
+    queries = [sl.get("image_query", "") for sl in slides] + [pick.get("image_query", ""), story["title"]]
+    photos = gather_photos(story, ctx, queries, 1 + len(slides), workdir, "post", *cover)
     # nothing more to tell than the headline: a comment slide keeps the carousel at 3 slides
     total = max(len(slides), 1) + 2
     images = [render.feed_post(photos[0], pick["headline"], pick.get("highlight"),
@@ -121,29 +139,43 @@ def run_once(dry_run=False, poster=None, only=None):
     if not stories:
         print("[main] no news fetched — skipping this round")
         return []
-    picks = ai.pick_and_write(stories, len(kinds), set(state["posted"]))
+    # a few spare stories, so one without a related photo for the front can be skipped
+    picks = ai.pick_and_write(stories, len(kinds) + 3, set(state["posted"]))
     if not picks:
         print("[main] no new stories this round")
         return []
     by_id = {s["id"]: s for s in stories}
 
     built = []
-    for kind, pick in zip(kinds, picks):
-        story = by_id[pick["id"]]
-        ctx = news.article_context(story)
+    for kind in kinds:
+        if not picks:
+            break
+        for pick in list(picks):
+            story = by_id[pick["id"]]
+            ctx = news.article_context(story)
+            cover = find_cover(story, ctx, pick.get("image_query", ""), workdir, kind)
+            if cover[0]:
+                break
+            print(f"[main] no related photo for: {story['title']} — trying the next story")
+        else:
+            print("[main] no story with a related photo — using a text card on the front")
+            pick = picks[0]
+            story, ctx, cover = by_id[pick["id"]], news.article_context(by_id[pick["id"]]), (None, None)
+        picks.remove(pick)
         details = ai.write_details(pick, story, ctx["text"], n_slides=MAX_FACT_SLIDES if kind == "post" else 0)
         caption = build_caption(pick, story, details)
         (workdir / f"{kind}_caption.txt").write_text(caption, encoding="utf-8")
         if kind == "post":
-            media = build_album(pick, story, ctx, details, workdir, stamp)
-            cover = media[0]
+            media = build_album(pick, story, ctx, details, cover, workdir, stamp)
+            cover_img = media[0]
         else:
             lines = [l for l in (pick.get("reel_lines") or []) if l][:3] or [""]
-            photos = gather_photos(story, ctx, [pick.get("image_query", ""), story["title"]], len(lines), workdir, "reel")
+            photos = gather_photos(story, ctx, [pick.get("image_query", ""), story["title"]], len(lines), workdir,
+                                   "reel", *cover)
             media = [reel.build_reel(photos, pick, workdir, workdir / f"reel-{stamp}.mp4")]
-            cover = reel.extract_cover(media[0], workdir / f"reel-{stamp}.jpg")
+            cover_img = reel.extract_cover(media[0], workdir / f"reel-{stamp}.jpg")
         print(f"[main] {kind} ({len(media)} file{'s' if len(media) > 1 else ''}): {pick['headline']}")
-        built.append((kind, pick, story, media, caption, cover))
+        built.append((kind, pick, story, media, caption, cover_img))
 
     if not dry_run and poster is None:
         poster = __import__("poster").get_poster()
