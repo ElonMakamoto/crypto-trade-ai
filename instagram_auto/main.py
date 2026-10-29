@@ -33,9 +33,19 @@ def save_state(state):
     config.STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+ABBREVIATIONS = ("Mr", "Mrs", "Ms", "Dr", "St", "Jr", "Sr", "vs", "No", "Gov", "Sen", "Rep", "Gen", "Prof", "Inc", "Co")
+
+
+def space_sentences(text):
+    """A blank line after every full stop that ends a sentence (not after ? or !, abbreviations or decimals)."""
+    abbrev = "".join(f"(?<!\\b{a})" for a in ABBREVIATIONS)
+    # a lowercase letter, digit or closing quote/bracket before the stop rules out initials like "U.S."
+    return re.sub(rf"(?<=[a-z0-9)\"'”’]){abbrev}\.[ \t]+(?=\S)", ".\n\n", text)
+
+
 def build_caption(pick, story, details):
     """Detailed description + follow line + source + 5 hashtags."""
-    text = details.get("caption") or pick.get("caption", "")
+    text = space_sentences(details.get("caption") or pick.get("caption", ""))
     tags, seen = [], set()
     for tag in list(details.get("hashtags", [])) + list(pick.get("hashtags", [])):
         tag = re.sub(r"[^\w]", "", str(tag).lstrip("#"))
