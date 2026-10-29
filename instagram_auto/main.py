@@ -84,14 +84,20 @@ def build_album(pick, story, workdir, stamp):
     return images
 
 
-def run_once(dry_run=False, poster=None):
-    """One round: returns the list of media files made."""
+def run_once(dry_run=False, poster=None, only=None):
+    """One round: returns the list of media files made. only="reel"/"post" forces that kind."""
     state = load_state()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     workdir = config.OUTPUT_DIR / stamp
     workdir.mkdir(parents=True, exist_ok=True)
 
-    kinds = {"both": ["post", "reel"], "post": ["post"], "reel": ["reel"]}[config.POST_MODE]
+    if only:
+        kinds = [only]
+    elif config.POST_MODE == "alternate":
+        # one upload per round, taking turns: reel, then carousel post, then reel...
+        kinds = ["post" if state.get("last_kind") == "reel" else "reel"]
+    else:
+        kinds = {"both": ["post", "reel"], "post": ["post"], "reel": ["reel"]}[config.POST_MODE]
     stories = news.fetch_trending()
     if not stories:
         print("[main] no news fetched — skipping this round")
@@ -131,6 +137,7 @@ def run_once(dry_run=False, poster=None):
                 code = poster.post_reel(media[0], caption, cover)
             print(f"[main] uploaded {kind}: {code}")
             state["posted"].append(story["key"])
+            state["last_kind"] = kind
         except Exception as e:
             print(f"[main] upload of {kind} failed: {e}")
 
