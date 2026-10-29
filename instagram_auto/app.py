@@ -422,10 +422,11 @@ class App:
             return
         try:
             r = requests.get(f"https://api.github.com/repos/{REPO}/releases/tags/{RELEASE_TAG}", timeout=15)
-            body = r.json().get("body") or ""
+            body = r.json().get("body") or "" if r.ok else ""
         except (requests.RequestException, ValueError):
             return
-        if current not in body:
+        # release notes start with "build: <sha>"; no release yet means nothing to offer
+        if body.startswith("build:") and current not in body:
             self.root.after(0, lambda: self.update_btn.pack(side="right", padx=8))
             print("⬆ 새 버전이 있습니다. 오른쪽 위 '새 버전 받기'를 누르세요.\n")
 
