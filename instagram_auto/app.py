@@ -31,7 +31,8 @@ FIELDS = [
     # key, label, kind
     ("GOOGLE_API_KEY", "Google API 키", "secret"),
     ("IG_BACKEND", "인스타 연결 방식", "backend"),
-    ("IG_ACCESS_TOKEN", "인스타 액세스 토큰", "secret"),
+    ("IG_ACCESS_TOKEN", "인스타 액세스 토큰 (IG... 또는 EAA... 토큰)", "secret"),
+    ("IG_USER_ID", "인스타 비즈니스 계정 ID (선택, EAA 토큰용)", "text"),
     ("IG_USERNAME", "인스타 아이디", "text"),
     ("IG_PASSWORD", "인스타 비밀번호", "secret"),
     ("BRAND_HANDLE", "이미지에 넣을 계정명", "text"),
@@ -44,7 +45,7 @@ MODES = {"both": "게시물 + 릴스", "post": "게시물만", "reel": "릴스�
 BACKENDS = {"graph": "공식 API (추천)", "instagrapi": "아이디 / 비밀번호 (비공식)"}
 CHOICES = {"mode": MODES, "backend": BACKENDS}
 # which fields each login method needs
-BACKEND_FIELDS = {"graph": {"IG_ACCESS_TOKEN"}, "instagrapi": {"IG_USERNAME", "IG_PASSWORD"}}
+BACKEND_FIELDS = {"graph": {"IG_ACCESS_TOKEN", "IG_USER_ID"}, "instagrapi": {"IG_USERNAME", "IG_PASSWORD"}}
 TOKEN_HELP_URL = "https://chedlab.org/instagram/#token"
 
 
@@ -321,7 +322,7 @@ class App:
 
     def _ready(self):
         if config.IG_BACKEND == "graph" and not config.IG_ACCESS_TOKEN:
-            messagebox.showwarning(APP_NAME, "인스타 액세스 토큰을 넣어 주세요.\n('인스타 토큰 받는 법'을 참고하세요)")
+            messagebox.showwarning(APP_NAME, "인스타 액세스 토큰(IG... 또는 EAA...)을 넣어 주세요.\n('인스타 토큰 받는 법'을 참고하세요)")
             return False
         if config.IG_BACKEND == "instagrapi" and not (config.IG_USERNAME and config.IG_PASSWORD):
             messagebox.showwarning(APP_NAME, "인스타 아이디와 비밀번호를 넣어 주세요.")
@@ -338,6 +339,8 @@ class App:
             try:
                 uploader = poster.get_poster(self.ask_code)
                 name = uploader.whoami()["username"] if hasattr(uploader, "whoami") else config.IG_USERNAME
+                if config.IG_USER_ID:  # show an auto-detected business account id in its field
+                    self.root.after(0, lambda: self.vars["IG_USER_ID"].set(config.IG_USER_ID))
                 print(f"✔ 인스타 연결 성공: @{name}\n")
                 self.root.after(0, lambda: messagebox.showinfo(APP_NAME, f"연결 성공: @{name}"))
             except Exception as e:
