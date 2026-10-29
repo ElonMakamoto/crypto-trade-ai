@@ -46,7 +46,7 @@ jobs:
         run: >
           pyinstaller --noconfirm --onefile --windowed --name InstagramAuto
           --add-data "fonts;fonts" --add-data "version.txt;."
-          --collect-all imageio_ffmpeg --collect-all curl_cffi --collect-submodules instagrapi
+          --collect-all imageio_ffmpeg --collect-all curl_cffi --collect-all tzdata --collect-submodules instagrapi
           app.py
 
       - name: Self-test the .exe

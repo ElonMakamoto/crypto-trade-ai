@@ -11,7 +11,7 @@ import threading
 import tkinter as tk
 import traceback
 import webbrowser
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox, scrolledtext, simpledialog, ttk
 
@@ -21,6 +21,7 @@ from PIL import Image, ImageTk
 import config
 import main as bot
 import poster
+import timeslots
 
 APP_NAME = "Instagram Auto"
 REPO = "ElonMakamoto/crypto-trade-ai"
@@ -39,7 +40,7 @@ FIELDS = [
     ("IG_PASSWORD", "인스타 비밀번호", "secret"),
     ("BRAND_HANDLE", "이미지에 넣을 계정명", "text"),
     ("ACCENT_COLOR", "강조 색상", "color"),
-    ("INTERVAL_HOURS", "업로드 간격 (시간)", "text"),
+    ("POST_TIMES", "자동 업로드 시간 (뉴욕시간, 최대 5개)", "times"),
     ("NEWS_FOCUS", "뉴스 주제", "focus"),
     ("POST_MODE", "자동 업로드 때 올릴 것", "mode"),
     ("MUSIC_DIR", "릴스 배경음악 폴더 (선택)", "folder"),
@@ -138,6 +139,25 @@ class App:
             cell = ttk.Frame(form)
             cell.grid(row=row * 2 + 1, column=0, sticky="ew")
             self.rows[key] = (lbl, cell)
+            if kind == "times":
+                boxes = []
+                for i in range(timeslots.SLOTS):
+                    box = ttk.Combobox(cell, state="readonly", values=timeslots.CHOICES, width=9, height=16)
+                    box.grid(row=i // 3, column=i % 3, padx=(0, 4), pady=(0, 3), sticky="w")
+                    boxes.append(box)
+
+                def to_var(*_, b=boxes, v=var):
+                    v.set(",".join(x.get() for x in b if x.get() and x.get() != timeslots.OFF))
+
+                def to_boxes(*_, b=boxes, v=var):
+                    times = [f"{h:02d}:{m:02d}" for h, m in timeslots.parse(v.get())]
+                    for i, box in enumerate(b):
+                        box.set(times[i] if i < len(times) else timeslots.OFF)
+
+                for box in boxes:
+                    box.bind("<<ComboboxSelected>>", to_var)
+                var.trace_add("write", to_boxes)
+                continue
             if kind in CHOICES:
                 options = CHOICES[kind]
                 box = ttk.Combobox(cell, state="readonly", values=list(options.values()), width=34)
@@ -228,11 +248,8 @@ class App:
 
     def collect(self):
         values = {k: v.get().strip() for k, v in self.vars.items()}
-        try:
-            hours = float(values["INTERVAL_HOURS"])
-            assert hours >= 1
-        except (ValueError, AssertionError):
-            raise ValueError("업로드 간격은 1 이상의 숫자로 넣어 주세요.")
+        if not timeslots.parse(values["POST_TIMES"]):
+            raise ValueError("자동 업로드 시간을 하나 이상 골라 주세요.")
         if not values["ACCENT_COLOR"].startswith("#") or len(values["ACCENT_COLOR"]) != 7:
             raise ValueError("강조 색상은 #FFD400 같은 형식이어야 합니다.")
         return values
@@ -377,11 +394,15 @@ class App:
         threading.Thread(target=check, daemon=True).start()
 
     def _auto_loop(self):
-        while not self.stop_event.is_set():
-            self._round(dry_run=False)
-            self.next_run = datetime.now() + timedelta(hours=config.INTERVAL_HOURS)
-            self._set_status(None)
-            if self.stop_event.wait(config.INTERVAL_HOURS * 3600):
+        """Upload at the chosen New York-time slots; checks every 30 s so sleep/clock changes can't skip a slot."""
+        self.next_run = timeslots.next_slot(timeslots.parse(config.POST_TIMES))
+        self._set_status(None)
+        while not self.stop_event.is_set() and self.next_run:
+            if timeslots.now() >= self.next_run:
+                self._round(dry_run=False)
+                self.next_run = timeslots.next_slot(timeslots.parse(config.POST_TIMES))
+                self._set_status(None)
+            elif self.stop_event.wait(30):
                 break
         self.next_run = None
 
@@ -394,7 +415,9 @@ class App:
         self.auto_thread = threading.Thread(target=self._auto_loop, daemon=True)
         self.auto_thread.start()
         self.auto_btn.config(text="■ 자동 업로드 중지")
-        print(f"▶ 자동 업로드 시작: {config.INTERVAL_HOURS:g}시간마다 올립니다. (PC가 켜져 있어야 합니다)\n")
+        times = ", ".join(f"{h:02d}:{m:02d}" for h, m in timeslots.parse(config.POST_TIMES))
+        print(f"▶ 자동 업로드 시작: 매일 {times} ({timeslots.TZ_LABEL})에 올립니다. "
+              f"지금 뉴욕은 {timeslots.now():%m/%d %H:%M}입니다. (PC가 켜져 있어야 합니다)\n")
 
     def stop_auto(self):
         self.stop_event.set()
@@ -416,9 +439,10 @@ class App:
         if self.busy.locked():
             return self.status.get()
         if self.next_run:
-            left = self.next_run - datetime.now()
+            left = self.next_run - timeslots.now()
             h, m = divmod(max(int(left.total_seconds()), 0) // 60, 60)
-            return f"🟢 자동 업로드 켜짐 · 다음 업로드 {self.next_run:%H:%M} ({h}시간 {m}분 후)"
+            day = "" if self.next_run.date() == timeslots.now().date() else "내일 "
+            return f"🟢 자동 업로드 켜짐 · 다음 업로드 {day}{timeslots.describe(self.next_run)} · {h}시간 {m}분 후"
         if self.auto_thread and self.auto_thread.is_alive() and not self.stop_event.is_set():
             return "🟢 자동 업로드 켜짐"
         return "⚪ 대기 중 · '자동 업로드 시작'을 누르세요"
@@ -549,6 +573,8 @@ def selftest(report):
         reel.extract_cover(video, tmp / "cover.jpg")
         assert secure_store.decrypt(secure_store.encrypt("secret")) == "secret"
         assert Client().user_id is None
+        import timeslots
+        assert "New_York" in str(timeslots.TZ), "New York time zone data missing (tzdata)"
         Path(report).write_text(f"OK {app_version()} {video.stat().st_size} bytes")
         return 0
     except Exception:
