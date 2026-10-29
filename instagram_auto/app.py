@@ -40,12 +40,14 @@ FIELDS = [
     ("BRAND_HANDLE", "이미지에 넣을 계정명", "text"),
     ("ACCENT_COLOR", "강조 색상", "color"),
     ("INTERVAL_HOURS", "업로드 간격 (시간)", "text"),
+    ("NEWS_FOCUS", "뉴스 주제", "focus"),
     ("POST_MODE", "자동 업로드 때 올릴 것", "mode"),
     ("MUSIC_DIR", "릴스 배경음악 폴더 (선택)", "folder"),
 ]
 MODES = {"alternate": "하나씩 번갈아 (릴스 → 게시물)", "reel": "릴스만", "post": "게시물만 (3~6장 슬라이드)"}
 BACKENDS = {"graph": "공식 API (추천)", "instagrapi": "아이디 / 비밀번호 (비공식)"}
-CHOICES = {"mode": MODES, "backend": BACKENDS}
+FOCUSES = {"disasters": "자연재해 뉴스만", "trending": "전체 인기 뉴스"}
+CHOICES = {"mode": MODES, "backend": BACKENDS, "focus": FOCUSES}
 # which fields each login method needs
 BACKEND_FIELDS = {"graph": {"IG_ACCESS_TOKEN", "IG_USER_ID"}, "instagrapi": {"IG_USERNAME", "IG_PASSWORD"}}
 TOKEN_HELP_URL = "https://chedlab.org/instagram/#token"
@@ -84,8 +86,8 @@ class App:
         self.preview_imgs = []
 
         root.title(APP_NAME)
-        root.geometry("1100x720")
-        root.minsize(1060, 660)
+        root.geometry("1100x800")
+        root.minsize(1060, 760)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         self._migrate_settings()
         self._style()

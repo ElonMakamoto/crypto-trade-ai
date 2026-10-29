@@ -53,7 +53,8 @@ def build_caption(pick, story, details):
             seen.add(tag.lower())
             tags.append("#" + tag)
     source = f"\n📰 Source: {story['source']}" if story.get("source") else ""
-    follow = f"\n\n👉 Follow {config.BRAND_HANDLE} for daily news"
+    what = "natural disaster updates" if config.NEWS_FOCUS == "disasters" else "daily news"
+    follow = f"\n\n👉 Follow {config.BRAND_HANDLE} for {what}"
     return f"{text}{follow}{source}\n\n{' '.join(tags[:HASHTAGS])}".strip()[:2200]
 
 

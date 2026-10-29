@@ -48,25 +48,63 @@ def _parse(xml_text):
     return items
 
 
-def fetch_trending(limit=40):
-    """Top stories plus a few hot sections, de-duplicated, newest first."""
+# Google News searches for natural disasters (last 2 days); the label becomes the story's topic
+DISASTER_SEARCHES = {
+    "EARTHQUAKE": "earthquake OR tsunami OR aftershock",
+    "STORM": "hurricane OR typhoon OR cyclone OR tropical storm",
+    "WILDFIRE": "wildfire OR bushfire OR forest fire",
+    "FLOOD": "flood OR flash flood OR flooding OR monsoon",
+    "TORNADO": "tornado OR severe storms OR hailstorm",
+    "VOLCANO": "volcano eruption OR volcanic",
+    "LANDSLIDE": "landslide OR mudslide OR avalanche",
+    "EXTREME WEATHER": "heatwave OR drought OR blizzard OR winter storm",
+}
+DISASTER_WORDS = re.compile(
+    r"earthquake|quake|tremor|magnitude|tsunami|hurricane|typhoon|cyclone|tropical storm|storm|tornado|twister|"
+    r"flood|flooding|monsoon|wildfire|bushfire|forest fire|blaze|volcan|eruption|lava|landslide|mudslide|"
+    r"avalanche|heatwave|heat wave|drought|blizzard|snowstorm|hail|evacuat|disaster", re.I)
+# sports teams and other false friends ("Carolina Hurricanes", "Colorado Avalanche", "stock market storm"...)
+NOT_DISASTER = re.compile(
+    r"\b(NHL|NBA|WNBA|NFL|MLB|NCAA|playoffs?|coach|vs\.?|"
+    r"Carolina Hurricanes|Miami Hurricanes|Colorado Avalanche|Miami Heat|Tampa Bay Lightning|Thunder|Seattle Storm|"
+    r"Cyclones|Iowa State|stocks?|markets?|Nasdaq|Dow|S&P|shares|investors|crypto|bitcoin|election|polls?)\b", re.I)
+
+
+def _search_url(query):
+    params = f"hl={config.NEWS_LANGUAGE}-{config.NEWS_COUNTRY}&gl={config.NEWS_COUNTRY}&ceid={config.NEWS_COUNTRY}:{config.NEWS_LANGUAGE}"
+    return f"https://news.google.com/rss/search?q={quote(query + ' when:2d')}&{params}"
+
+
+def _fetch_feeds(feeds, limit, keep=lambda s: True):
     seen, stories = set(), []
-    for topic in [None] + TOPICS:
+    for topic, url in feeds:
         try:
-            r = requests.get(_rss_url(topic), headers=UA, timeout=20)
+            r = requests.get(url, headers=UA, timeout=20)
             r.raise_for_status()
         except requests.RequestException as e:
-            print(f"[news] {topic or 'TOP'} failed: {e}")
+            print(f"[news] {topic} failed: {e}")
             continue
         for s in _parse(r.text):
             key = re.sub(r"\W+", "", s["title"].lower())[:60]
-            if key and key not in seen:
+            if key and key not in seen and keep(s):
                 seen.add(key)
                 s["key"] = key
-                s["topic"] = topic or "TOP"
+                s["topic"] = topic
                 stories.append(s)
     stories.sort(key=lambda s: s["published"], reverse=True)
     return stories[:limit]
+
+
+def fetch_trending(limit=40):
+    """Stories for the configured focus: natural disasters (default) or all top stories."""
+    if config.NEWS_FOCUS == "disasters":
+        def is_disaster(story):
+            return bool(DISASTER_WORDS.search(story["title"])) and not NOT_DISASTER.search(story["title"])
+
+        stories = _fetch_feeds([(t, _search_url(q)) for t, q in DISASTER_SEARCHES.items()], limit, is_disaster)
+        print(f"[news] {len(stories)} natural disaster stories")
+        return stories
+    return _fetch_feeds([("TOP", _rss_url())] + [(t, _rss_url(t)) for t in TOPICS], limit)
 
 
 def resolve_google_news(url):
@@ -221,6 +259,9 @@ def cover_candidates(story, ctx, query):
         yield from wikipedia_images(name, 2)
     yield from related_images(story)
     yield from wikimedia_images(query or story["title"], 3)
+    if config.NEWS_FOCUS == "disasters" and story.get("topic") in DISASTER_SEARCHES:
+        # last resort: a real photo of this kind of disaster
+        yield from wikimedia_images(f"{story['topic'].lower()} damage", 3)
 
 
 def find_image_url(story, keywords=""):
