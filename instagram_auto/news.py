@@ -100,30 +100,52 @@ def _og_image(url):
     return None
 
 
-def _wikimedia_image(query):
-    """Fallback: a freely licensed photo from Wikimedia Commons matching the query."""
+def article_context(story):
+    """The publisher article behind a story: its photo and readable text (for grounded slides)."""
+    url = resolve_google_news(story["link"])
+    ctx = {"url": url, "image": None, "text": ""}
+    try:
+        page = requests.get(url, headers=UA, timeout=20, allow_redirects=True).text
+    except requests.RequestException:
+        return ctx
+
+    def meta(name):
+        m = re.search(rf'<meta[^>]+(?:property|name)=["\']{name}["\'][^>]+content=["\']([^"\']+)', page, re.I) \
+            or re.search(rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']{name}["\']', page, re.I)
+        return html.unescape(m.group(1)) if m else ""
+
+    image = meta("og:image") or meta("twitter:image")
+    if image and "googleusercontent" not in image and "gstatic" not in image:
+        ctx["image"] = image
+    paragraphs = [html.unescape(re.sub(r"<[^>]+>", "", p)).strip()
+                  for p in re.findall(r"<p[^>]*>(.*?)</p>", page, re.S | re.I)]
+    body = " ".join(p for p in paragraphs if len(p) > 60)
+    ctx["text"] = (meta("og:description") + "\n" + body)[:4000].strip()
+    return ctx
+
+
+def wikimedia_images(query, limit=5):
+    """Freely licensed photos from Wikimedia Commons matching the query (best first)."""
     try:
         r = requests.get(
             "https://commons.wikimedia.org/w/api.php",
             params={
                 "action": "query", "format": "json", "generator": "search",
-                "gsrsearch": f"filetype:bitmap {query}", "gsrnamespace": 6, "gsrlimit": 5,
+                "gsrsearch": f"filetype:bitmap {query}", "gsrnamespace": 6, "gsrlimit": limit + 3,
                 "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 1600,
             },
             headers=WIKI_UA, timeout=20,
         )
         pages = r.json().get("query", {}).get("pages", {})
-        for p in sorted(pages.values(), key=lambda p: p.get("index", 99)):
-            info = (p.get("imageinfo") or [{}])[0]
-            if info.get("thumburl"):
-                return info["thumburl"]
+        urls = [(p.get("imageinfo") or [{}])[0].get("thumburl")
+                for p in sorted(pages.values(), key=lambda p: p.get("index", 99))]
+        return [u for u in urls if u][:limit]
     except (requests.RequestException, ValueError):
-        pass
-    return None
+        return []
 
 
 def find_image_url(story, keywords=""):
-    return _og_image(resolve_google_news(story["link"])) or _wikimedia_image(keywords or story["title"])
+    return _og_image(resolve_google_news(story["link"])) or next(iter(wikimedia_images(keywords or story["title"], 1)), None)
 
 
 def download_image(url, dest):

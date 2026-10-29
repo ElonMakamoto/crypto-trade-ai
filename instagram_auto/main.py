@@ -16,6 +16,9 @@ import news
 import reel
 import render
 
+MAX_FACT_SLIDES = 4  # cover + up to 4 fact slides + follow slide = 3-6 images
+
+
 def load_state():
     if config.STATE_FILE.exists():
         return json.loads(config.STATE_FILE.read_text(encoding="utf-8"))
@@ -34,25 +37,49 @@ def build_caption(pick, story):
     return f"{pick['caption']}{source}\n\n{tags}".strip()[:2200]
 
 
-def prepare(picks, stories, workdir, needed):
-    """Attach a photo to each pick; without one, use a Pubity-style text card background."""
-    by_id = {s["id"]: s for s in stories}
-    ready = []
-    for pick in picks[:needed]:
-        story = by_id[pick["id"]]
-        photo = workdir / f"photo_{len(ready)}.img"
-        url = news.find_image_url(story, pick.get("image_query", ""))
+def gather_photos(story, ctx, queries, needed, workdir, tag):
+    """`needed` different photos: the article's own image, then Wikimedia photos for each query; text cards fill gaps."""
+    results = [news.wikimedia_images(q, 4) for q in dict.fromkeys(q for q in queries if q)]
+    urls = [ctx["image"]] if ctx.get("image") else []
+    for rank in range(4):  # one photo per query first, so slides about different things get different photos
+        for found in results:
+            if rank < len(found) and found[rank] not in urls:
+                urls.append(found[rank])
+    photos = []
+    for url in urls:
+        if len(photos) == needed:
+            break
+        dest = workdir / f"{tag}_photo{len(photos)}.img"
         try:
-            if not url:
-                raise ValueError("no image found")
-            news.download_image(url, photo)
-            render.load_photo(photo, (64, 64))  # validate it opens
-        except Exception as e:  # no image, bad download or unreadable image
-            print(f"[main] no photo for: {story['title']} ({e}) — using a text card")
-            photo = render.text_card_background(story.get("source") or story.get("topic", ""),
-                                                workdir / f"card_{len(ready)}.jpg")
-        ready.append((pick, story, photo))
-    return ready
+            news.download_image(url, dest)
+            render.load_photo(dest, (64, 64))  # validate it opens
+            photos.append(dest)
+        except Exception as e:  # bad download or unreadable image
+            print(f"[main] photo skipped ({e})")
+    if len(photos) < needed:
+        print(f"[main] found {len(photos)}/{needed} photos for: {story['title']} — filling with text cards")
+    while len(photos) < needed:
+        photos.append(render.text_card_background(story.get("source") or story.get("topic", ""),
+                                                  workdir / f"{tag}_card{len(photos)}.jpg"))
+    return photos
+
+
+def build_album(pick, story, workdir, stamp):
+    """Cover + 2-4 fact slides (each with its own photo) + follow slide = 3-6 images."""
+    ctx = news.article_context(story)
+    slides = ai.write_slides(pick, story, ctx["text"], n=MAX_FACT_SLIDES)
+    queries = [pick.get("image_query", "")] + [sl.get("image_query", "") for sl in slides] + [story["title"]]
+    photos = gather_photos(story, ctx, queries, 1 + len(slides), workdir, "post")
+    if not slides:  # nothing to tell beyond the headline: a single post
+        return [render.feed_post(photos[0], pick["headline"], pick.get("highlight"), workdir / f"post-{stamp}.jpg")]
+    total = len(slides) + 2
+    images = [render.feed_post(photos[0], pick["headline"], pick.get("highlight"),
+                               workdir / f"post-{stamp}-1.jpg", swipe=True)]
+    for i, (slide, photo) in enumerate(zip(slides, photos[1:]), start=2):
+        images.append(render.fact_slide(photo, slide["text"], slide.get("highlight"), i, total,
+                                        workdir / f"post-{stamp}-{i}.jpg"))
+    images.append(render.cta_slide(workdir / f"post-{stamp}-{total}.jpg", total, total))
+    return images
 
 
 def run_once(dry_run=False, poster=None):
@@ -67,22 +94,27 @@ def run_once(dry_run=False, poster=None):
     if not stories:
         print("[main] no news fetched — skipping this round")
         return []
-    picks = ai.pick_and_write(stories, len(kinds) + 3, set(state["posted"]))
-    ready = prepare(picks, stories, workdir, len(kinds))
-    if not ready:
-        print("[main] nothing postable this round")
+    picks = ai.pick_and_write(stories, len(kinds), set(state["posted"]))
+    if not picks:
+        print("[main] no new stories this round")
         return []
+    by_id = {s["id"]: s for s in stories}
 
     built = []
-    for kind, (pick, story, photo) in zip(kinds, ready):
+    for kind, pick in zip(kinds, picks):
+        story = by_id[pick["id"]]
         caption = build_caption(pick, story)
         (workdir / f"{kind}_caption.txt").write_text(caption, encoding="utf-8")
         if kind == "post":
-            media = cover = render.feed_post(photo, pick["headline"], pick.get("highlight"), workdir / f"post-{stamp}.jpg")
+            media = build_album(pick, story, workdir, stamp)
+            cover = media[0]
         else:
-            media = reel.build_reel(photo, pick, workdir, workdir / f"reel-{stamp}.mp4")
-            cover = reel.extract_cover(media, workdir / f"reel-{stamp}.jpg")
-        print(f"[main] {kind}: {pick['headline']} -> {media}")
+            lines = [l for l in (pick.get("reel_lines") or []) if l][:3] or [""]
+            photos = gather_photos(story, news.article_context(story),
+                                   [pick.get("image_query", ""), story["title"]], len(lines), workdir, "reel")
+            media = [reel.build_reel(photos, pick, workdir, workdir / f"reel-{stamp}.mp4")]
+            cover = reel.extract_cover(media[0], workdir / f"reel-{stamp}.jpg")
+        print(f"[main] {kind} ({len(media)} file{'s' if len(media) > 1 else ''}): {pick['headline']}")
         built.append((kind, pick, story, media, caption, cover))
 
     if not dry_run and poster is None:
@@ -91,7 +123,10 @@ def run_once(dry_run=False, poster=None):
         if dry_run:
             continue
         try:
-            code = poster.post_image(media, caption) if kind == "post" else poster.post_reel(media, caption, cover)
+            if kind == "post":
+                code = poster.post_album(media, caption)
+            else:
+                code = poster.post_reel(media[0], caption, cover)
             print(f"[main] uploaded {kind}: {code}")
             state["posted"].append(story["key"])
         except Exception as e:
@@ -100,7 +135,7 @@ def run_once(dry_run=False, poster=None):
     state["runs"] = state.get("runs", 0) + 1
     state["last_run"] = stamp
     save_state(state)
-    return [b[3] for b in built]
+    return [path for b in built for path in b[3]]
 
 
 def main():

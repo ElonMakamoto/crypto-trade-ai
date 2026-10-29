@@ -39,6 +39,11 @@ class InstagrapiPoster:
     def post_reel(self, path, caption, cover=None):
         return self.cl.clip_upload(path, caption, thumbnail=cover).code
 
+    def post_album(self, paths, caption):
+        if len(paths) == 1:
+            return self.post_image(paths[0], caption)
+        return self.cl.album_upload(paths, caption).code
+
 
 def mask(text):
     """Never show a whole token: keep its first 4 characters."""
@@ -199,6 +204,22 @@ class GraphPoster:
 
     def post_reel(self, path, caption, cover=None):
         return self._publish(self._video_container(path, media_type="REELS", caption=caption, share_to_feed="true"))
+
+    def post_album(self, paths, caption):
+        """A carousel of the slide images (or a single post for one image)."""
+        if len(paths) == 1:
+            return self.post_image(paths[0], caption)
+        if config.PUBLIC_MEDIA_BASE_URL:
+            return self.post_carousel(paths, caption)
+        # photos are only accepted by public URL: upload each slide as a short still video instead
+        import reel
+
+        videos = [reel.still_video(p, p.with_suffix(".mp4"), seconds=5) for p in paths]
+        try:
+            return self.post_carousel(videos, caption)
+        except RuntimeError as e:
+            print(f"[poster] carousel failed ({e}) — posting the cover only")
+            return self.post_image(paths[0], caption)
 
     def post_carousel(self, paths, caption):
         """2-10 images/videos as one carousel post (images need PUBLIC_MEDIA_BASE_URL)."""

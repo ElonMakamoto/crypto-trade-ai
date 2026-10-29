@@ -20,37 +20,30 @@ def ffmpeg_exe():
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def build_reel(photo_path, pick, workdir, out_path):
+def build_reel(photos, pick, workdir, out_path):
+    """photos: one path or a list; each story line gets the next photo with its own slow zoom."""
+    photos = photos if isinstance(photos, list) else [photos]
     seconds = config.REEL_SECONDS
     lines = [l for l in (pick.get("reel_lines") or []) if l][:3] or [""]
-    bg = render.reel_background(photo_path, workdir / "reel_bg.jpg")
-    overlays = [
-        render.reel_overlay(pick["headline"], pick.get("highlight"), line, workdir / f"reel_ov{i}.png")
-        for i, line in enumerate(lines)
-    ]
+    seg_frames = seconds * FPS // len(lines)
 
-    frames = seconds * FPS
-    seg = seconds / len(overlays)
-    inputs = ["-loop", "1", "-i", str(bg)]
-    for ov in overlays:
-        inputs += ["-loop", "1", "-i", str(ov)]
+    inputs, chain = [], []
+    for i, line in enumerate(lines):
+        bg = render.reel_background(photos[i % len(photos)], workdir / f"reel_bg{i}.jpg")
+        ov = render.reel_overlay(pick["headline"], pick.get("highlight"), line, workdir / f"reel_ov{i}.png")
+        inputs += ["-i", str(bg), "-loop", "1", "-i", str(ov)]
+        # Ken Burns zoom on this segment's photo, with its story line on top
+        chain.append(f"[{2 * i}:v]scale=1296:2304,zoompan=z='min(zoom+0.0009,1.2)':d={seg_frames}"
+                     f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={FPS},setsar=1[b{i}]")
+        chain.append(f"[b{i}][{2 * i + 1}:v]overlay=0:0:shortest=1[s{i}]")
+    chain.append("".join(f"[s{i}]" for i in range(len(lines))) + f"concat=n={len(lines)}:v=1:a=0,format=yuv420p[vout]")
 
     music = sorted(config.MUSIC_DIR.glob("*.mp3")) if config.MUSIC_DIR.exists() else []
     if music:
         inputs += ["-stream_loop", "-1", "-i", str(random.choice(music))]
     else:
         inputs += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
-    audio_idx = len(overlays) + 1
-
-    # Ken Burns zoom, then swap the overlay for each story line
-    chain = [
-        f"[0:v]scale=1296:2304,zoompan=z='min(zoom+0.0009,1.2)':d={frames}"
-        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={FPS}[v0]"
-    ]
-    for i in range(len(overlays)):
-        start, end = i * seg, (i + 1) * seg
-        chain.append(f"[v{i}][{i + 1}:v]overlay=0:0:enable='between(t,{start:.2f},{end:.2f})'[v{i + 1}]")
-    chain.append(f"[v{len(overlays)}]format=yuv420p[vout]")
+    audio_idx = 2 * len(lines)
     afilter = f"[{audio_idx}:a]afade=t=out:st={seconds - 1}:d=1,volume=0.6[aout]"
 
     cmd = [
