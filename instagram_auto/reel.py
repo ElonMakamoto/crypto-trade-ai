@@ -1,11 +1,23 @@
 """Build a 9:16 Reel: slow zoom on the photo, headline + story lines, optional music."""
 import random
+import shutil
 import subprocess
+import sys
 
 import config
 import render
 
 FPS = 30
+
+
+def ffmpeg_exe():
+    """System ffmpeg, else the copy bundled with the imageio-ffmpeg package."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    import imageio_ffmpeg
+
+    return imageio_ffmpeg.get_ffmpeg_exe()
 
 
 def build_reel(photo_path, pick, workdir, out_path):
@@ -42,11 +54,26 @@ def build_reel(photo_path, pick, workdir, out_path):
     afilter = f"[{audio_idx}:a]afade=t=out:st={seconds - 1}:d=1,volume=0.6[aout]"
 
     cmd = [
-        "ffmpeg", "-y", "-loglevel", "error", *inputs,
+        ffmpeg_exe(), "-y", "-loglevel", "error", *inputs,
         "-filter_complex", ";".join(chain + [afilter]),
         "-map", "[vout]", "-map", "[aout]", "-t", str(seconds),
         "-c:v", "libx264", "-preset", "medium", "-crf", "21", "-r", str(FPS),
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out_path),
     ]
-    subprocess.run(cmd, check=True)
+    _run(cmd)
     return out_path
+
+
+def extract_cover(video_path, out_path, at=1.0):
+    """9:16 cover frame for the reel (also used as the upload thumbnail)."""
+    _run([ffmpeg_exe(), "-y", "-loglevel", "error", "-ss", str(at), "-i", str(video_path),
+          "-frames:v", "1", "-q:v", "2", str(out_path)])
+    return out_path
+
+
+def _run(cmd):
+    # no console window flashing up from the desktop app
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    result = subprocess.run(cmd, capture_output=True, text=True, creationflags=flags)
+    if result.returncode:
+        raise RuntimeError(f"ffmpeg failed: {result.stderr.strip()[-500:]}")

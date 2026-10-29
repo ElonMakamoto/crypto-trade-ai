@@ -7,16 +7,26 @@ import config
 
 
 class InstagrapiPoster:
-    def __init__(self):
+    def __init__(self, ask_code=None):
+        """ask_code(prompt) -> str is called when Instagram asks for a security / 2FA code."""
         from instagrapi import Client
 
         if not (config.IG_USERNAME and config.IG_PASSWORD):
             raise RuntimeError("IG_USERNAME / IG_PASSWORD are required for IG_BACKEND=instagrapi")
         self.cl = Client()
         self.cl.delay_range = [2, 6]
+        if ask_code:
+            self.cl.challenge_code_handler = lambda username, choice: ask_code(
+                f"Instagram sent a security code to your {getattr(choice, 'name', choice)}.\nEnter the code:")
         if config.IG_SESSION_FILE.exists():
             self.cl.load_settings(config.IG_SESSION_FILE)
-        self.cl.login(config.IG_USERNAME, config.IG_PASSWORD)
+        try:
+            self.cl.login(config.IG_USERNAME, config.IG_PASSWORD)
+        except Exception as e:
+            if not ask_code or "TwoFactorRequired" not in type(e).__name__:
+                raise
+            code = ask_code("Enter the 6-digit code from your two-factor authentication app / SMS:")
+            self.cl.login(config.IG_USERNAME, config.IG_PASSWORD, verification_code=code)
         config.IG_SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
         self.cl.dump_settings(config.IG_SESSION_FILE)
 
@@ -79,5 +89,5 @@ class GraphPoster:
         return self._wait_and_publish(creation["id"])
 
 
-def get_poster():
-    return GraphPoster() if config.IG_BACKEND == "graph" else InstagrapiPoster()
+def get_poster(ask_code=None):
+    return GraphPoster() if config.IG_BACKEND == "graph" else InstagrapiPoster(ask_code)

@@ -1,6 +1,23 @@
-"""Settings loaded from environment variables (or a local .env file)."""
+"""Settings: environment variables, a local .env, or the desktop app's saved settings."""
+import json
 import os
+import sys
 from pathlib import Path
+
+FROZEN = getattr(sys, "frozen", False)
+# read-only files bundled with the app (fonts, music)
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+# writable files (state, output, settings): %APPDATA%\InstagramAuto for the .exe
+if FROZEN:
+    DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / "InstagramAuto"
+else:
+    DATA_DIR = Path(__file__).parent
+
+FONTS_DIR = BASE_DIR / "fonts"
+OUTPUT_DIR = DATA_DIR / "output"
+STATE_FILE = DATA_DIR / "state" / "posted.json"
+SETTINGS_FILE = DATA_DIR / "settings.json"
+IG_SESSION_FILE = DATA_DIR / "state" / "ig_session.json"
 
 try:
     from dotenv import load_dotenv
@@ -9,47 +26,70 @@ try:
 except ImportError:
     pass
 
-BASE_DIR = Path(__file__).parent
-OUTPUT_DIR = BASE_DIR / "output"
-FONTS_DIR = BASE_DIR / "fonts"
-MUSIC_DIR = BASE_DIR / "assets" / "music"
-STATE_FILE = BASE_DIR / "state" / "posted.json"
+# Saved by the desktop app; secrets are stored encrypted
+SECRET_KEYS = {"GOOGLE_API_KEY", "IG_PASSWORD", "IG_ACCESS_TOKEN"}
+DEFAULTS = {
+    "GOOGLE_API_KEY": "",
+    "GEMINI_MODEL": "gemini-2.5-flash",
+    "NEWS_COUNTRY": "US",
+    "NEWS_LANGUAGE": "en",
+    "POST_LANGUAGE": "English",
+    "BRAND_HANDLE": "@yourpage",
+    "ACCENT_COLOR": "#FFD400",
+    # "instagrapi" = username/password, "graph" = official Graph API (Business/Creator account)
+    "IG_BACKEND": "instagrapi",
+    "IG_USERNAME": "",
+    "IG_PASSWORD": "",
+    "IG_ACCESS_TOKEN": "",
+    "IG_USER_ID": "",
+    "GRAPH_VERSION": "v21.0",
+    # Graph API needs a public URL serving output/ images for feed posts (reels upload directly)
+    "PUBLIC_MEDIA_BASE_URL": "",
+    # "both" (feed post + reel), "post", or "reel"
+    "POST_MODE": "both",
+    "INTERVAL_HOURS": "5",
+    "REEL_SECONDS": "8",
+    "MUSIC_DIR": "",
+}
 
 
-def _env(name, default=""):
-    return os.environ.get(name, default).strip()
+def load_settings():
+    """Saved app settings (secrets decrypted), or {} if none."""
+    if not SETTINGS_FILE.exists():
+        return {}
+    import secure_store
+
+    data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    for key in SECRET_KEYS & data.keys():
+        data[key] = secure_store.decrypt(data[key])
+    return data
 
 
-# Google AI (Gemini) — writes the viral headline, caption and hashtags
-GOOGLE_API_KEY = _env("GOOGLE_API_KEY")
-GEMINI_MODEL = _env("GEMINI_MODEL", "gemini-2.5-flash")
+def save_settings(values):
+    import secure_store
 
-# News source: Google News RSS (no key needed)
-NEWS_COUNTRY = _env("NEWS_COUNTRY", "US")
-NEWS_LANGUAGE = _env("NEWS_LANGUAGE", "en")
-# Language the headline/caption are written in (Pubity style = English)
-POST_LANGUAGE = _env("POST_LANGUAGE", "English")
+    data = {k: str(v).strip() for k, v in values.items()}
+    for key in SECRET_KEYS & data.keys():
+        data[key] = secure_store.encrypt(data[key])
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    reload()
 
-# Branding
-BRAND_HANDLE = _env("BRAND_HANDLE", "@yourpage")
-ACCENT_COLOR = _env("ACCENT_COLOR", "#FFD400")
 
-# Instagram
-# "instagrapi" = username/password (simple, unofficial)
-# "graph"      = official Instagram Graph API (Business/Creator account)
-IG_BACKEND = _env("IG_BACKEND", "instagrapi")
-IG_USERNAME = _env("IG_USERNAME")
-IG_PASSWORD = _env("IG_PASSWORD")
-IG_SESSION_FILE = BASE_DIR / "state" / "ig_session.json"
-IG_ACCESS_TOKEN = _env("IG_ACCESS_TOKEN")
-IG_USER_ID = _env("IG_USER_ID")
-GRAPH_VERSION = _env("GRAPH_VERSION", "v21.0")
-# Graph API needs a public URL for feed images (reels upload directly)
-PUBLIC_MEDIA_BASE_URL = _env("PUBLIC_MEDIA_BASE_URL").rstrip("/")
-# Shell command run after public/instagram is updated, before uploading (e.g. git push)
-SITE_PUBLISH_HOOK = _env("SITE_PUBLISH_HOOK")
+def current():
+    return {k: f"{globals()[k]:g}" if isinstance(globals()[k], float) else str(globals()[k]) for k in DEFAULTS}
 
-# What each run posts: "both" (feed post + reel), "post", or "reel"
-POST_MODE = _env("POST_MODE", "both")
-INTERVAL_HOURS = float(_env("INTERVAL_HOURS", "5"))
-REEL_SECONDS = int(_env("REEL_SECONDS", "8"))
+
+def reload():
+    """(Re)compute module settings: saved app settings > environment > defaults."""
+    saved = load_settings()
+    g = globals()
+    for key, default in DEFAULTS.items():
+        g[key] = (saved.get(key) or os.environ.get(key) or default).strip()
+    g["PUBLIC_MEDIA_BASE_URL"] = g["PUBLIC_MEDIA_BASE_URL"].rstrip("/")
+    g["INTERVAL_HOURS"] = float(g["INTERVAL_HOURS"] or 5)
+    g["REEL_SECONDS"] = int(g["REEL_SECONDS"] or 8)
+    g["MUSIC_DIR"] = Path(g["MUSIC_DIR"]) if g["MUSIC_DIR"] else BASE_DIR / "assets" / "music"
+
+
+reload()

@@ -1,65 +1,74 @@
 # instagram_auto
 
-지금 뜨는 뉴스를 [@pubity](https://instagram.com/pubity) 스타일 이미지와 릴스로 만들어 **5시간마다** 인스타그램에 자동 업로드하는 봇입니다.
-설명 페이지와 최근 게시물은 **https://chedlab.org/instagram** 에 표시되며, 봇이 실행될 때마다 자동으로 업데이트됩니다.
+지금 뜨는 뉴스를 [@pubity](https://instagram.com/pubity) 스타일 이미지와 릴스로 만들어 정해진 간격(기본 **5시간**)마다 인스타그램에 자동 업로드하는 **Windows 앱**입니다.
+
+- 다운로드와 설명: **https://chedlab.org/instagram**
+- 직접 받기: [InstagramAuto.exe](https://github.com/ElonMakamoto/crypto-trade-ai/releases/download/instagram-auto-latest/InstagramAuto.exe)
+
+## 사용 방법
+
+1. `InstagramAuto.exe`를 실행합니다. 서명되지 않은 앱이라 "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누르세요.
+2. **Google API 키** ([AI Studio에서 무료 발급](https://aistudio.google.com/apikey)), **인스타 아이디/비밀번호**, **이미지에 넣을 계정명**을 입력하고 **설정 저장**을 누릅니다.
+3. **미리보기만 만들기**로 결과물을 확인합니다. 이때는 업로드하지 않습니다.
+4. **▶ 자동 업로드 시작**을 누르면 바로 한 번 올리고, 이후 설정한 간격마다 올립니다.
+5. (선택) **Windows 시작할 때 자동 실행**을 체크하면 PC를 켤 때 앱이 자동으로 켜지고 자동 업로드도 시작됩니다.
+
+PC가 켜져 있는 동안만 동작합니다. 창은 최소화해 두면 되고, 닫으면 멈춥니다.
 
 ## 동작 순서
 
-1. **뉴스 수집**: Google News RSS (톱뉴스, 연예, 스포츠, 테크, 과학)를 가져옵니다. 키는 필요 없습니다.
-2. **AI 선택과 문구 작성**: `GOOGLE_API_KEY`로 Gemini가 가장 바이럴할 기사를 고르고 대문자 헤드라인, 강조 단어, 캡션, 해시태그, 릴스용 문장을 씁니다.
-3. **이미지**: 기사의 대표 사진(og:image)을 쓰고, 없으면 Wikimedia Commons에서 찾습니다. 1080×1350 피드 이미지로 만듭니다.
-4. **릴스**: 1080×1920, 8초 줌인 영상에 헤드라인과 스토리 문장을 넣습니다. `assets/music/*.mp3`가 있으면 배경음악으로 씁니다.
-5. **업로드**: 한 번 실행할 때 피드 게시물 1개와 릴스 1개를 올립니다 (`POST_MODE`). 올린 기사는 `state/posted.json`에 기록해 중복을 막습니다.
-6. **웹사이트 갱신**: `public/instagram/feed.json`과 `media/`를 갱신해 커밋하면 Cloudflare가 자동으로 다시 배포합니다.
+1. **뉴스 수집**: Google News RSS (톱뉴스, 연예, 스포츠, 테크, 과학)에서 기사를 모읍니다.
+2. **AI 문구**: Gemini가 가장 바이럴할 기사를 고르고 대문자 헤드라인, 강조 단어, 캡션, 해시태그, 릴스 문장을 씁니다. 키가 없으면 원래 기사 제목을 그대로 씁니다.
+3. **이미지**: 기사 대표 사진(og:image)을 쓰고, 없으면 Wikimedia Commons에서 찾아 1080×1350 이미지로 만듭니다.
+4. **릴스**: 1080×1920, 8초 줌인 영상에 헤드라인과 스토리 문장을 넣습니다. 음악 폴더를 지정하면 그 안의 mp3를 랜덤으로 씁니다.
+5. **업로드**: 게시물 1개와 릴스 1개를 올립니다 (`올릴 것` 설정). 올린 기사는 기록해 두고 다시 올리지 않습니다.
 
-## 설정 (GitHub Actions, 5시간마다 자동)
+## 저장 위치
 
-`.github/workflows/instagram-auto.yml`이 `0 */5 * * *` (UTC 0, 5, 10, 15, 20시)에 실행됩니다.
-저장소 **Settings → Secrets and variables → Actions**에 다음을 추가하세요.
+| 내용 | 위치 |
+|---|---|
+| 설정 (비밀번호, API 키는 Windows DPAPI로 암호화) | `%APPDATA%\InstagramAuto\settings.json` |
+| 만든 이미지, 영상, 캡션 | `%APPDATA%\InstagramAuto\output\` (앱의 **결과 폴더** 버튼) |
+| 인스타 로그인 세션, 올린 기사 기록 | `%APPDATA%\InstagramAuto\state\` |
 
-| 종류 | 이름 | 값 |
-|---|---|---|
-| Secret | `GOOGLE_API_KEY` | Google AI Studio API 키 |
-| Secret | `IG_USERNAME`, `IG_PASSWORD` | 인스타그램 로그인 (instagrapi 방식) |
-| Secret | `IG_SESSION_JSON` | (선택) 로컬에서 한 번 로그인 후 생긴 `state/ig_session.json` 내용. 로그인 차단을 줄여 줍니다 |
-| Secret | `IG_ACCESS_TOKEN`, `IG_USER_ID` | (Graph API 방식일 때) |
-| Variable | `IG_BACKEND` | `instagrapi` (기본) 또는 `graph` |
-| Variable | `BRAND_HANDLE` | 이미지에 들어갈 계정 이름, 예: `@chedlab` |
-| Variable | `ACCENT_COLOR`, `POST_MODE` | (선택) 강조 색상, `both`/`post`/`reel` |
+## 자동 업데이트
 
-Actions 탭 → **Instagram Auto** → **Run workflow**로 바로 실행할 수 있습니다 (`dry_run`을 켜면 업로드 없이 이미지와 사이트만 만듭니다).
+`instagram_auto/`가 바뀌어 `main`에 머지되면 `.github/workflows/instagram-auto-windows.yml`이 다음을 합니다.
 
-> 워크플로는 기본 브랜치(`main`)에 있어야 스케줄이 동작합니다.
+- Windows 서버에서 `.exe`를 빌드합니다.
+- 빌드된 `.exe`가 실제로 이미지와 영상을 만드는지 셀프 테스트합니다.
+- 통과하면 `instagram-auto-latest` 릴리스로 올립니다.
 
-### 업로드 방식 선택
+그 결과:
 
-- **instagrapi (기본)**: 아이디/비밀번호만 있으면 됩니다. 비공식 API라서 인스타그램이 로그인 확인(챌린지)을 요구하거나 계정을 제한할 수 있습니다. 클라우드 서버에서 처음 로그인하면 차단되기 쉬우니, 로컬에서 한 번 로그인한 세션을 `IG_SESSION_JSON`으로 넣는 것을 권장합니다.
-- **Graph API (공식, 안정적)**: 비즈니스/크리에이터 계정과 Facebook 페이지 연결, Meta 앱의 장기 액세스 토큰이 필요합니다. 릴스는 파일을 직접 올리고, 피드 이미지는 공개 URL이 필요해서 `https://chedlab.org/instagram/media/`에 먼저 배포한 뒤 그 주소로 올립니다.
+- 웹페이지의 다운로드 링크는 항상 최신 버전을 가리킵니다.
+- 앱은 시작할 때 새 버전이 있는지 확인하고 **새 버전 받기** 버튼을 보여 줍니다.
 
-## 로컬 실행
+## 개발자용 (Python으로 실행)
 
 ```bash
 cd instagram_auto
-pip install -r requirements.txt   # ffmpeg도 필요합니다
-cp .env.example .env              # 키 입력
-python main.py --dry-run          # 업로드 없이 output/ 에 이미지/릴스 생성
-python main.py                    # 한 번 업로드
-python main.py --loop             # 5시간마다 계속 실행
+pip install -r requirements.txt
+python app.py                     # 데스크톱 앱
+python main.py --dry-run          # 명령줄: 업로드 없이 output/ 에 생성
+python main.py --loop             # 명령줄: 간격마다 계속 업로드 (.env 사용, .env.example 참고)
 ```
 
 ## 파일
 
 | 파일 | 역할 |
 |---|---|
+| `app.py` | Windows 데스크톱 앱 (tkinter) |
+| `main.py` | 한 번의 실행 흐름 (뉴스, 문구, 이미지, 릴스, 업로드) |
 | `news.py` | Google News 트렌딩 수집, 기사 사진 찾기 |
-| `ai.py` | Gemini로 기사 선택과 헤드라인, 캡션 작성 |
-| `render.py` | Pubity 스타일 피드 이미지와 릴스 오버레이 |
-| `reel.py` | ffmpeg로 릴스 영상 생성 |
-| `poster.py` | instagrapi / Graph API 업로드 |
-| `main.py` | 전체 실행, 사이트 갱신, 중복 방지 |
-| `../public/instagram/` | chedlab.org/instagram 페이지 |
+| `ai.py` | Gemini로 기사 선택과 문구 작성 |
+| `render.py` | Pubity 스타일 이미지와 릴스 오버레이 |
+| `reel.py` | ffmpeg로 릴스 영상과 커버 생성 (ffmpeg는 앱에 포함) |
+| `poster.py` | 인스타 업로드 (instagrapi, 또는 공식 Graph API) |
+| `config.py`, `secure_store.py` | 설정 저장과 암호화 |
 
 ## 주의
 
-- 뉴스 사진과 기사의 저작권은 각 언론사에 있습니다. 출처를 캡션에 자동으로 넣지만, 상업적으로 운영한다면 라이선스를 확인하세요.
+- 아이디/비밀번호 방식(instagrapi)은 비공식 API입니다. 너무 자주 올리면 인스타가 계정을 제한할 수 있으니 4~6시간 간격을 권장합니다.
+- 뉴스 사진과 기사의 저작권은 각 언론사에 있습니다. 출처는 캡션에 자동으로 들어갑니다.
 - 폰트: Anton, Montserrat (SIL Open Font License, `fonts/OFL.txt`).

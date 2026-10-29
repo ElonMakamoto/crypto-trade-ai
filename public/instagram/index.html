@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Instagram Auto</title>
-<meta name="description" content="트렌딩 뉴스를 Pubity 스타일 게시물과 릴스로 만들어 5시간마다 자동 업로드하는 봇">
+<meta name="description" content="트렌딩 뉴스를 Pubity 스타일 게시물과 릴스로 만들어 자동 업로드하는 Windows 앱">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
@@ -26,7 +26,7 @@
   }
   a { color: var(--accent); }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
-  header { padding: 56px 0 32px; border-bottom: 1px solid var(--line); }
+  header { padding: 56px 0 40px; border-bottom: 1px solid var(--line); }
   .eyebrow { color: var(--accent); font-weight: 700; letter-spacing: .12em; font-size: 13px; text-transform: uppercase; }
   h1 {
     font-family: "Anton", sans-serif;
@@ -37,17 +37,19 @@
     text-transform: uppercase;
   }
   h1 span { color: var(--accent); }
-  .lead { color: var(--muted); max-width: 640px; font-size: 17px; margin: 0; }
-  .status { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
-  .chip {
-    border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
-    padding: 6px 14px; font-size: 14px; color: var(--muted);
+  .lead { color: var(--muted); max-width: 660px; font-size: 17px; margin: 0; }
+  .cta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-top: 28px; }
+  .download {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--accent); color: #000; text-decoration: none;
+    font-weight: 900; font-size: 18px; padding: 14px 26px; border-radius: 10px;
   }
-  .chip b { color: var(--text); font-weight: 700; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3ddc84; margin-right: 6px; vertical-align: 1px; }
+  .download:hover { filter: brightness(1.08); }
+  .meta { color: var(--muted); font-size: 14px; }
+  .meta b { color: var(--text); }
   section { padding: 48px 0; border-bottom: 1px solid var(--line); }
   h2 { font-family: "Anton", "Noto Sans KR", sans-serif; font-weight: 900; font-size: 32px; text-transform: uppercase; margin: 0 0 24px; letter-spacing: .02em; }
-  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; counter-reset: step; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; counter-reset: step; }
   .step { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
   .step::before {
     counter-increment: step; content: "0" counter(step);
@@ -55,57 +57,39 @@
   }
   .step h3 { margin: 6px 0 6px; font-size: 17px; }
   .step p { margin: 0; color: var(--muted); font-size: 14px; }
-  .feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
-  .card .media { position: relative; aspect-ratio: 4 / 5; background: #000; }
-  .card img, .card video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .badge {
-    position: absolute; top: 10px; left: 10px; background: var(--accent); color: #000;
-    font-weight: 900; font-size: 12px; padding: 2px 8px; border-radius: 4px; text-transform: uppercase;
-  }
-  .card .body { padding: 14px; font-size: 14px; }
-  .card .meta { color: var(--muted); font-size: 12px; margin-top: 8px; }
-  .empty { color: var(--muted); border: 1px dashed var(--line); border-radius: 12px; padding: 32px; text-align: center; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { color: var(--muted); font-weight: 400; }
+  td:first-child { white-space: nowrap; font-weight: 700; }
   code { background: #222; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
   .table-wrap { overflow-x: auto; }
+  .notes { margin: 0; padding-left: 20px; color: var(--muted); }
+  .notes li { margin-bottom: 8px; }
+  .notes b { color: var(--text); }
   footer { padding: 32px 0 48px; color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
 <header>
   <div class="wrap">
-    <div class="eyebrow">chedlab · instagram_auto</div>
+    <div class="eyebrow">chedlab · instagram auto</div>
     <h1>Trending news, <span>auto-posted</span></h1>
-    <p class="lead">지금 뜨는 뉴스를 골라 Pubity 스타일 이미지와 릴스로 만들어 5시간마다 인스타그램에 자동으로 올리는 봇입니다. 이 페이지도 봇이 실행될 때마다 자동으로 업데이트됩니다.</p>
-    <div class="status">
-      <span class="chip"><span class="dot"></span>마지막 업데이트 <b id="updated">—</b></span>
-      <span class="chip">다음 실행 <b id="next">—</b></span>
-      <span class="chip">주기 <b id="interval">5시간</b></span>
-      <span class="chip">게시물 <b id="count">0</b></span>
+    <p class="lead">지금 뜨는 뉴스를 골라 Pubity 스타일 이미지와 릴스로 만들어, 정해진 시간마다 인스타그램에 자동으로 올리는 Windows 앱입니다. 아이디, 비밀번호, Google API 키만 넣으면 됩니다.</p>
+    <div class="cta">
+      <a class="download" id="download" href="https://github.com/ElonMakamoto/crypto-trade-ai/releases/download/instagram-auto-latest/InstagramAuto.exe">⬇ Windows용 다운로드</a>
+      <span class="meta">Windows 10 / 11 · 설치 없이 바로 실행 · 최신 버전 <b id="version">자동</b></span>
     </div>
   </div>
 </header>
 
 <section>
   <div class="wrap">
-    <h2>최근 업로드</h2>
-    <div class="feed" id="feed"><div class="empty">아직 업로드된 게시물이 없습니다. 첫 실행 후 여기에 표시됩니다.</div></div>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>작동 방식</h2>
+    <h2>사용 방법</h2>
     <div class="steps">
-      <div class="step"><h3>트렌딩 뉴스 수집</h3><p>Google News의 톱뉴스, 연예, 스포츠, 테크, 과학 섹션에서 최신 기사를 모읍니다.</p></div>
-      <div class="step"><h3>AI가 바이럴 기사 선택</h3><p>Google AI(Gemini)가 가장 공유될 만한 기사를 고르고, 짧고 강한 대문자 헤드라인, 캡션, 해시태그를 씁니다.</p></div>
-      <div class="step"><h3>Pubity 스타일 디자인</h3><p>위쪽은 기사 사진, 아래는 검은 패널에 굵은 헤드라인, 핵심 단어는 노란색으로 강조합니다.</p></div>
-      <div class="step"><h3>릴스 자동 제작</h3><p>9:16 세로 영상: 사진 줌인 효과, 헤드라인, 단계별 스토리 문장, 배경음악(선택)까지 넣습니다.</p></div>
-      <div class="step"><h3>5시간마다 업로드</h3><p>GitHub Actions가 5시간마다 실행해 피드 게시물 1개와 릴스 1개를 올리고, 중복 기사는 건너뜁니다.</p></div>
-      <div class="step"><h3>이 페이지 자동 갱신</h3><p>새 게시물이 저장소에 커밋되면 Cloudflare가 자동으로 다시 배포해 이 페이지가 업데이트됩니다.</p></div>
+      <div class="step"><h3>다운로드 후 실행</h3><p><code>InstagramAuto.exe</code>를 실행합니다. "Windows의 PC 보호" 창이 뜨면 <b>추가 정보 → 실행</b>을 누르세요.</p></div>
+      <div class="step"><h3>정보 입력</h3><p>Google API 키(<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">무료 발급</a>), 인스타 아이디/비밀번호, 이미지에 넣을 계정명을 넣고 <b>설정 저장</b>.</p></div>
+      <div class="step"><h3>미리보기 확인</h3><p><b>미리보기만 만들기</b>로 어떤 게시물과 릴스가 나오는지 먼저 확인합니다. 업로드는 하지 않습니다.</p></div>
+      <div class="step"><h3>자동 업로드 시작</h3><p><b>▶ 자동 업로드 시작</b>을 누르면 바로 한 번 올리고, 이후 설정한 간격(기본 5시간)마다 올립니다.</p></div>
     </div>
   </div>
 </section>
@@ -116,96 +100,46 @@
     <div class="table-wrap">
       <table>
         <tr><th>기능</th><th>설명</th></tr>
-        <tr><td>뉴스 소스</td><td>Google News RSS (키 불필요), 국가/언어 설정 가능 (<code>NEWS_COUNTRY</code>, <code>NEWS_LANGUAGE</code>)</td></tr>
-        <tr><td>AI 문구</td><td>Google API 키 하나로 Gemini 사용 (<code>GOOGLE_API_KEY</code>). 키가 없으면 원본 제목으로 게시</td></tr>
-        <tr><td>피드 이미지</td><td>1080×1350 (4:5), Anton 폰트, 강조 색상과 계정 핸들 설정 가능</td></tr>
-        <tr><td>릴스</td><td>1080×1920, 기본 8초, H.264/AAC. <code>assets/music</code>에 mp3를 넣으면 랜덤 배경음악</td></tr>
-        <tr><td>업로드 방식</td><td><code>instagrapi</code> (아이디/비밀번호) 또는 공식 Instagram Graph API (비즈니스 계정)</td></tr>
-        <tr><td>일정</td><td>GitHub Actions 크론 <code>0 */5 * * *</code> 또는 <code>python main.py --loop</code></td></tr>
-        <tr><td>중복 방지</td><td>올린 기사는 <code>state/posted.json</code>에 기록해 다시 올리지 않음</td></tr>
+        <tr><td>트렌딩 뉴스</td><td>Google News의 톱뉴스, 연예, 스포츠, 테크, 과학 섹션에서 최신 기사를 모읍니다.</td></tr>
+        <tr><td>AI 문구</td><td>Google AI(Gemini)가 가장 바이럴할 기사를 고르고, 짧고 강한 대문자 헤드라인, 캡션, 해시태그를 씁니다.</td></tr>
+        <tr><td>Pubity 스타일 게시물</td><td>위는 기사 사진, 아래는 검은 패널에 굵은 헤드라인. 핵심 단어는 강조 색상으로 표시하고 계정명을 넣습니다 (1080×1350).</td></tr>
+        <tr><td>릴스 자동 제작</td><td>9:16 세로 영상: 사진 줌인 효과와 헤드라인, 단계별 스토리 문장. 음악 폴더를 지정하면 mp3를 랜덤으로 깔아 줍니다.</td></tr>
+        <tr><td>자동 업로드</td><td>한 번에 게시물 1개 + 릴스 1개 (또는 하나만). 간격은 직접 정할 수 있고, 이미 올린 기사는 다시 올리지 않습니다.</td></tr>
+        <tr><td>보안 코드 처리</td><td>인스타가 보안 코드나 2단계 인증 코드를 요구하면 앱에서 바로 입력할 수 있습니다.</td></tr>
+        <tr><td>Windows 시작 시 실행</td><td>체크하면 PC를 켤 때 앱이 자동으로 켜지고 자동 업로드도 바로 시작합니다.</td></tr>
+        <tr><td>안전한 저장</td><td>비밀번호와 API 키는 Windows 암호화로 이 PC의 내 계정에만 저장됩니다.</td></tr>
+        <tr><td>자동 업데이트</td><td>새 버전이 나오면 이 페이지의 다운로드가 자동으로 최신이 되고, 앱 안에도 "새 버전 받기" 버튼이 나타납니다.</td></tr>
       </table>
     </div>
   </div>
 </section>
 
+<section>
+  <div class="wrap">
+    <h2>알아 둘 점</h2>
+    <ul class="notes">
+      <li><b>PC가 켜져 있어야</b> 자동 업로드가 됩니다. 창은 최소화해 두면 되고, 닫으면 멈춥니다.</li>
+      <li>아이디/비밀번호 방식은 인스타 공식 API가 아니라서, 너무 자주 올리면 인스타가 계정을 제한할 수 있습니다. 간격은 4~6시간을 권장합니다.</li>
+      <li>뉴스 사진과 기사의 저작권은 각 언론사에 있습니다. 캡션에 출처는 자동으로 들어갑니다.</li>
+      <li>만든 이미지와 영상은 앱의 <b>결과 폴더</b> 버튼으로 볼 수 있습니다 (<code>%APPDATA%\InstagramAuto</code>).</li>
+    </ul>
+  </div>
+</section>
+
 <footer>
-  <div class="wrap">소스: <code>instagram_auto/</code> · 뉴스 사진과 기사 저작권은 각 언론사에 있습니다.</div>
+  <div class="wrap">소스: <a href="https://github.com/ElonMakamoto/crypto-trade-ai/tree/main/instagram_auto">instagram_auto</a></div>
 </footer>
 
 <script>
-  const BASE = "/instagram/";
-  const fmt = (iso) => new Date(iso).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" });
-
-  function headlineHTML(text, highlight) {
-    const hot = new Set([].concat(highlight || []).join(" ").toUpperCase().split(/\s+/));
-    return text.split(/\s+/).map((w) => {
-      const span = document.createElement("span");
-      span.textContent = w;
-      if (hot.has(w.replace(/[.,!?:;'"]/g, ""))) span.style.color = "var(--accent)";
-      return span.outerHTML;
-    }).join(" ");
-  }
-
-  function card(item) {
-    const el = document.createElement("article");
-    el.className = "card";
-    const media = document.createElement("div");
-    media.className = "media";
-    if (item.type === "reel") {
-      const v = document.createElement("video");
-      v.src = BASE + "media/" + item.media;
-      if (item.cover) v.poster = BASE + "media/" + item.cover;
-      v.muted = true; v.loop = true; v.playsInline = true; v.preload = "none";
-      el.addEventListener("mouseenter", () => v.play().catch(() => {}));
-      el.addEventListener("mouseleave", () => v.pause());
-      v.addEventListener("click", () => (v.paused ? v.play() : v.pause()));
-      media.append(v);
-    } else {
-      const img = document.createElement("img");
-      img.src = BASE + "media/" + item.media;
-      img.alt = item.headline;
-      img.loading = "lazy";
-      media.append(img);
-    }
-    const badge = document.createElement("span");
-    badge.className = "badge";
-    badge.textContent = item.type === "reel" ? "Reel" : "Post";
-    media.append(badge);
-
-    const body = document.createElement("div");
-    body.className = "body";
-    const h = document.createElement("div");
-    h.style.fontWeight = 900;
-    h.innerHTML = headlineHTML(item.headline, item.highlight);
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    meta.textContent = [item.source, item.time && fmt(item.time)].filter(Boolean).join(" · ");
-    body.append(h, meta);
-    el.append(media, body);
-    return el;
-  }
-
-  async function load() {
-    try {
-      const res = await fetch(BASE + "feed.json", { cache: "no-store" });
-      const data = await res.json();
-      const hours = data.interval_hours || 5;
-      document.getElementById("interval").textContent = hours + "시간";
-      document.getElementById("count").textContent = data.items.length;
-      if (data.updated) {
-        document.getElementById("updated").textContent = fmt(data.updated);
-        document.getElementById("next").textContent = "약 " + fmt(new Date(new Date(data.updated).getTime() + hours * 3600e3).toISOString());
-      }
-      if (data.items.length) {
-        const feed = document.getElementById("feed");
-        feed.replaceChildren(...data.items.map(card));
-      }
-    } catch (e) {
-      console.warn("feed.json not available", e);
-    }
-  }
-  load();
-  setInterval(load, 10 * 60 * 1000);
+  // show the build of the current download (the release notes start with "build: <sha>")
+  fetch("https://api.github.com/repos/ElonMakamoto/crypto-trade-ai/releases/tags/instagram-auto-latest")
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((rel) => {
+      const m = /build:\s*(\w+)/.exec(rel.body || "");
+      const date = new Date(rel.published_at).toLocaleDateString("ko-KR");
+      document.getElementById("version").textContent = (m ? m[1] + " · " : "") + date;
+    })
+    .catch(() => {});
 </script>
 </body>
 </html>

@@ -3,11 +3,10 @@
     python main.py              # run once (post now)
     python main.py --dry-run    # make the images/video but don't upload
     python main.py --loop       # keep running, one round every INTERVAL_HOURS
+    python app.py               # Windows desktop app
 """
 import argparse
 import json
-import shutil
-import subprocess
 import time
 from datetime import datetime, timezone
 
@@ -17,22 +16,16 @@ import news
 import reel
 import render
 
-SITE_DIR = config.BASE_DIR.parent / "public" / "instagram"
-SITE_MEDIA = SITE_DIR / "media"
-SITE_FEED = SITE_DIR / "feed.json"
-SITE_KEEP = 30
-
-
 def load_state():
     if config.STATE_FILE.exists():
-        return json.loads(config.STATE_FILE.read_text())
+        return json.loads(config.STATE_FILE.read_text(encoding="utf-8"))
     return {"posted": [], "runs": 0}
 
 
 def save_state(state):
     config.STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     state["posted"] = state["posted"][-500:]
-    config.STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False))
+    config.STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def build_caption(pick, story):
@@ -63,25 +56,8 @@ def prepare(picks, stories, workdir, needed):
     return ready
 
 
-def publish_to_site(entries):
-    """Copy media into public/instagram and update feed.json (Cloudflare redeploys on push)."""
-    SITE_MEDIA.mkdir(parents=True, exist_ok=True)
-    feed = json.loads(SITE_FEED.read_text()) if SITE_FEED.exists() else {"items": []}
-    for e in entries:
-        shutil.copy(e.pop("file"), SITE_MEDIA / e["media"])
-        if e.get("cover_file"):
-            shutil.copy(e.pop("cover_file"), SITE_MEDIA / e["cover"])
-    feed["items"] = (entries + feed["items"])[:SITE_KEEP]
-    feed["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    feed["interval_hours"] = config.INTERVAL_HOURS
-    SITE_FEED.write_text(json.dumps(feed, indent=2, ensure_ascii=False))
-    keep = {i["media"] for i in feed["items"]} | {i.get("cover") for i in feed["items"]}
-    for f in SITE_MEDIA.iterdir():
-        if f.name not in keep and not f.name.startswith("."):
-            f.unlink()
-
-
-def run_once(dry_run=False, site=True):
+def run_once(dry_run=False, poster=None):
+    """One round: returns the list of media files made."""
     state = load_state()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     workdir = config.OUTPUT_DIR / stamp
@@ -91,62 +67,51 @@ def run_once(dry_run=False, site=True):
     stories = news.fetch_trending()
     if not stories:
         print("[main] no news fetched — skipping this round")
-        return
+        return []
     picks = ai.pick_and_write(stories, len(kinds) + 3, set(state["posted"]))
     ready = prepare(picks, stories, workdir, len(kinds))
     if not ready:
         print("[main] nothing postable this round")
-        return
+        return []
 
     built = []
     for kind, (pick, story, photo) in zip(kinds, ready):
         caption = build_caption(pick, story)
-        (workdir / f"{kind}_caption.txt").write_text(caption)
-        cover = render.feed_post(photo, pick["headline"], pick.get("highlight"), workdir / f"{kind}-{stamp}.jpg")
-        media = cover if kind == "post" else reel.build_reel(photo, pick, workdir, workdir / f"reel-{stamp}.mp4")
+        (workdir / f"{kind}_caption.txt").write_text(caption, encoding="utf-8")
+        if kind == "post":
+            media = cover = render.feed_post(photo, pick["headline"], pick.get("highlight"), workdir / f"post-{stamp}.jpg")
+        else:
+            media = reel.build_reel(photo, pick, workdir, workdir / f"reel-{stamp}.mp4")
+            cover = reel.extract_cover(media, workdir / f"reel-{stamp}.jpg")
         print(f"[main] {kind}: {pick['headline']} -> {media}")
         built.append((kind, pick, story, media, caption, cover))
 
-    if site:
-        entries = []
-        for kind, pick, story, media, _, cover in built:
-            entry = {"type": kind, "headline": pick["headline"], "highlight": pick.get("highlight"),
-                     "caption": pick["caption"], "source": story.get("source"), "link": story.get("link"),
-                     "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                     "media": media.name, "file": media}
-            if kind == "reel":
-                entry.update(cover=cover.name, cover_file=cover)
-            entries.append(entry)
-        publish_to_site(entries)
-        # e.g. git commit + push, so the Graph API can fetch images from the live site
-        if config.SITE_PUBLISH_HOOK and not dry_run:
-            subprocess.run(config.SITE_PUBLISH_HOOK, shell=True, check=False)
-
-    poster = None if dry_run else __import__("poster").get_poster()
+    if not dry_run and poster is None:
+        poster = __import__("poster").get_poster()
     for kind, pick, story, media, caption, cover in built:
-        if poster:
-            try:
-                code = poster.post_image(media, caption) if kind == "post" else poster.post_reel(media, caption, cover)
-                print(f"[main] uploaded {kind}: {code}")
-            except Exception as e:
-                print(f"[main] upload of {kind} failed: {e}")
-                continue
-        state["posted"].append(story["key"])
+        if dry_run:
+            continue
+        try:
+            code = poster.post_image(media, caption) if kind == "post" else poster.post_reel(media, caption, cover)
+            print(f"[main] uploaded {kind}: {code}")
+            state["posted"].append(story["key"])
+        except Exception as e:
+            print(f"[main] upload of {kind} failed: {e}")
 
     state["runs"] = state.get("runs", 0) + 1
     state["last_run"] = stamp
     save_state(state)
+    return [b[3] for b in built]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true", help="create media but don't upload")
     parser.add_argument("--loop", action="store_true", help=f"repeat every INTERVAL_HOURS ({config.INTERVAL_HOURS}h)")
-    parser.add_argument("--no-site", action="store_true", help="don't update public/instagram")
     args = parser.parse_args()
     while True:
         try:
-            run_once(dry_run=args.dry_run, site=not args.no_site)
+            run_once(dry_run=args.dry_run)
         except Exception as e:
             if not args.loop:
                 raise
