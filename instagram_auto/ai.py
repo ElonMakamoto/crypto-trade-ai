@@ -19,7 +19,7 @@ For each pick return:
 - "caption": 2-3 short sentences in {lang} summarising the story + a question to drive comments, 1-2 emojis
 - "hashtags": 8-12 relevant hashtags (without spaces)
 - "image_query": 2-5 words to search a photo for this story (people/place names)
-- "reel_lines": 3 short lines (max 8 words each) that tell the story beat by beat for a reel
+- "reel_lines": 3 short lines in {lang} (max 8 words each) that tell the story beat by beat for a reel
 
 Respond with JSON only: {{"picks": [ ... ]}}
 
@@ -40,7 +40,7 @@ For each pick return:
 - "caption": 2-3 short factual sentences in {lang}
 - "hashtags": 5 hashtags without '#': the event name/place, the disaster type, naturaldisaster, news
 - "image_query": 2-5 words to find a photo of THIS disaster: disaster type + place (e.g. "Hurricane Melissa Jamaica")
-- "reel_lines": 3 short factual lines (max 8 words each): what, where, impact
+- "reel_lines": 3 short factual lines in {lang} (max 8 words each): what, where, impact
 
 Respond with JSON only: {{"picks": [ ... ]}}
 
@@ -125,13 +125,13 @@ Article text (the ONLY source of facts; never add anything that is not in it):
 ---
 {text}
 ---
-Write in {lang}:
-1. "caption": a detailed Instagram caption, 4-6 sentences. {caption_guide} No hashtags in it.
+Write EVERYTHING below in {lang} (translate the facts from the article; keep names and numbers):
+1. "caption": a detailed Instagram caption in {lang}, 4-6 sentences. {caption_guide} No hashtags in it.
 2. "hashtags": exactly 5 hashtags without '#': 3 specific to this story (people, places, organisations,
    events), then 2 broader topic ones (e.g. news, worldnews, sports). Write them the way {lang}-speaking
    Instagram users search (e.g. 자연재해 for Korean, 自然災害 for Japanese). No spaces inside a hashtag.
 3. "slides": {n} short carousel slides that tell the story step by step after the headline slide.
-   Each: one or two punchy sentences, max 22 words, only facts from the article text; if there are fewer
+   Each: one or two punchy sentences in {lang}, max 22 words, only facts from the article text; if there are fewer
    facts, return fewer slides. For each slide give "highlight" (1-2 words to colour, exact substrings) and
    "image_query" (2-5 words to search a DIFFERENT photo per slide: people, places or things in that slide).
    {slides_note}
@@ -193,7 +193,11 @@ def _fallback_details(pick, story, article_text, n):
 
 def write_details(pick, story, article_text, n_slides=4):
     """Detailed caption, hashtags and (for carousels) fact slides — written only from the article text."""
-    if config.GOOGLE_API_KEY and len(article_text) > 200:
+    if config.GOOGLE_API_KEY and len(article_text) <= 200 and config.POST_LANGUAGE != "English":
+        # no readable article: let the AI write in the channel language from the headlines we have
+        article_text = "\n".join([story["title"] + ".", article_text]
+                                 + [f"{r[1]}: {r[0]}" for r in story.get("related", [])]).strip()
+    if config.GOOGLE_API_KEY and len(article_text) > 60:
         note = "" if n_slides else "Return an empty slides list."
         try:
             data = _gemini(DETAILS_PROMPT.format(headline=pick["headline"], text=article_text[:4000], n=n_slides,
@@ -205,6 +209,58 @@ def write_details(pick, story, article_text, n_slides=4):
         except (requests.RequestException, KeyError, ValueError) as e:
             print(f"[ai] details failed ({e}) — using article sentences")
     return _fallback_details(pick, story, article_text, n_slides)
+
+
+SCRIPTS = {"Korean": re.compile(r"[\uac00-\ud7a3]"), "Japanese": re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")}
+
+TRANSLATE_PROMPT = """Translate each item into natural {lang} for an Instagram news page about the same story.
+Keep names, numbers, emojis and line breaks. Headlines stay short and punchy (ALL CAPS has no meaning in {lang}).
+Return JSON only: {{"items": ["...", ...]}} with exactly {count} items in the same order.
+
+ITEMS:
+{items}
+"""
+
+
+def _not_in_language(text):
+    script = SCRIPTS.get(config.POST_LANGUAGE)
+    return bool(script and text and text.strip() and not script.search(text))
+
+
+def localize(pick, details):
+    """Korean/Japanese channels: translate any headline, reel line, caption or slide still in English."""
+    if config.POST_LANGUAGE not in SCRIPTS:
+        return
+    slots = []  # (container, key) pairs whose text must be translated
+    if _not_in_language(pick.get("headline", "")):
+        slots.append((pick, "headline"))
+    lines = pick.get("reel_lines") or []
+    slots += [(lines, i) for i, line in enumerate(lines) if _not_in_language(line)]
+    if _not_in_language(details.get("caption", "")):
+        slots.append((details, "caption"))
+    slots += [(sl, "text") for sl in details.get("slides", []) if _not_in_language(sl.get("text", ""))]
+    if not slots:
+        return
+    if not config.GOOGLE_API_KEY:
+        print(f"[ai] no Google API key — {len(slots)} text(s) stay in English")
+        return
+    texts = [container[key] for container, key in slots]
+    try:
+        data = _gemini(TRANSLATE_PROMPT.format(lang=config.POST_LANGUAGE, count=len(texts),
+                                               items=json.dumps(texts, ensure_ascii=False)))
+        translated = data.get("items", [])
+        if len(translated) != len(texts):
+            raise ValueError(f"got {len(translated)} translations for {len(texts)} texts")
+    except (requests.RequestException, KeyError, ValueError) as e:
+        print(f"[ai] translation to {config.POST_LANGUAGE} failed ({e}) — some text stays in English")
+        return
+    for (container, key), text in zip(slots, translated):
+        container[key] = str(text)
+        if key in ("headline", "text") and isinstance(container, dict):
+            # English highlight words no longer match: colour the first word of a translated headline instead
+            words = str(text).split()
+            container["highlight"] = words[:1] if key == "headline" and len(words) > 1 else []
+    print(f"[ai] translated {len(texts)} text(s) into {config.POST_LANGUAGE}")
 
 
 def _fallback(stories, n):
