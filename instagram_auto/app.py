@@ -12,6 +12,7 @@ import tkinter as tk
 import traceback
 import webbrowser
 from datetime import datetime, timedelta
+from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 import requests
@@ -26,6 +27,7 @@ REPO = "ElonMakamoto/crypto-trade-ai"
 RELEASE_TAG = "instagram-auto-latest"
 DOWNLOAD_URL = f"https://github.com/{REPO}/releases/download/{RELEASE_TAG}/InstagramAuto.exe"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+UPDATE_CHECK_MS = 3 * 3600 * 1000  # also check for a new version every 3 hours
 
 FIELDS = [
     # key, label, kind
@@ -71,7 +73,7 @@ class LogWriter:
 
 
 class App:
-    def __init__(self, root, autostart=False):
+    def __init__(self, root, autostart=False, resume=False):
         self.root = root
         self.log_q = queue.Queue()
         sys.stdout = sys.stderr = LogWriter(self.log_q)
@@ -90,9 +92,10 @@ class App:
         self._load_values()
         self._poll_log()
         self._tick()
-        threading.Thread(target=self.check_update, daemon=True).start()
-        if autostart:
+        self._schedule_update_check()
+        if autostart or resume:
             root.after(1500, self.start_auto)
+        if autostart:
             root.iconify()
 
     # ---------- UI ----------
@@ -116,6 +119,7 @@ class App:
         head = ttk.Frame(outer)
         head.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 12))
         ttk.Label(head, text="📰 " + APP_NAME, style="Title.TLabel").pack(side="left")
+        # fallback when the automatic update can't replace the .exe (e.g. no write permission)
         self.update_btn = ttk.Button(head, text="새 버전 받기", command=lambda: webbrowser.open(DOWNLOAD_URL))
         ttk.Label(head, text=f"버전 {app_version()}").pack(side="right")
 
@@ -420,6 +424,7 @@ class App:
         self.root.after(30_000, self._tick)
 
     def check_update(self):
+        """Look for a newer release; in the packaged app, install it automatically."""
         current = app_version()
         if current == "dev":
             return
@@ -429,9 +434,54 @@ class App:
         except (requests.RequestException, ValueError):
             return
         # release notes start with "build: <sha>"; no release yet means nothing to offer
-        if body.startswith("build:") and current not in body:
-            self.root.after(0, lambda: self.update_btn.pack(side="right", padx=8))
-            print("⬆ 새 버전이 있습니다. 오른쪽 위 '새 버전 받기'를 누르세요.\n")
+        if not body.startswith("build:") or current in body:
+            return
+        if config.FROZEN and sys.platform == "win32":
+            try:
+                self.install_update()
+                return
+            except Exception as e:
+                print(f"자동 업데이트 실패: {e}\n")
+        self.root.after(0, lambda: self.update_btn.pack(side="right", padx=8))
+        print("⬆ 새 버전이 있습니다. 오른쪽 위 '새 버전 받기'를 누르세요.\n")
+
+    def install_update(self):
+        """Download the new .exe, then swap it in and restart once this process has exited."""
+        exe = Path(sys.executable)
+        new = exe.with_name(exe.name + ".new")
+        print("⬆ 새 버전을 받는 중...\n")
+        with requests.get(DOWNLOAD_URL, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            with open(new, "wb") as f:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk)
+        if new.stat().st_size < 5_000_000:
+            new.unlink()
+            raise RuntimeError("받은 파일이 올바르지 않습니다")
+        # wait for any running round so an upload is never cut off
+        with self.busy:
+            resume = bool(self.auto_thread and self.auto_thread.is_alive() and not self.stop_event.is_set())
+            # the onefile bootloader (parent process) holds the .exe open until we exit
+            pid = os.getppid()
+            bat = exe.with_name("InstagramAuto-update.bat")
+            bat.write_text(
+                "@echo off\r\n"
+                ":wait\r\n"
+                f'tasklist /FI "PID eq {pid}" | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n'
+                f'move /Y "{new}" "{exe}" >nul\r\n'
+                f'start "" "{exe}" {"--resume-auto" if resume else ""}\r\n'
+                'del "%~f0"\r\n',
+                encoding="mbcs",
+            )
+            subprocess.Popen(["cmd", "/c", str(bat)], cwd=str(exe.parent),
+                             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS)
+            print("⬆ 새 버전으로 다시 시작합니다...\n")
+            self.stop_event.set()
+            self.root.after(500, self.root.destroy)
+
+    def _schedule_update_check(self):
+        threading.Thread(target=self.check_update, daemon=True).start()
+        self.root.after(UPDATE_CHECK_MS, self._schedule_update_check)
 
     def on_close(self):
         if self.auto_thread and self.auto_thread.is_alive() and not self.stop_event.is_set():
@@ -472,7 +522,7 @@ def run():
     if "--selftest" in sys.argv:
         sys.exit(selftest(sys.argv[sys.argv.index("--selftest") + 1]))
     root = tk.Tk()
-    App(root, autostart="--autostart" in sys.argv)
+    App(root, autostart="--autostart" in sys.argv, resume="--resume-auto" in sys.argv)
     root.mainloop()
 
 

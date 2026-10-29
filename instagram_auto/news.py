@@ -1,5 +1,6 @@
 """Fetch currently trending news from Google News and find an image for each story."""
 import html
+import json
 import re
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
@@ -10,6 +11,8 @@ import requests
 import config
 
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"}
+# Wikimedia rejects browser-imitating clients with 429; it asks for an identifying User-Agent
+WIKI_UA = {"User-Agent": "InstagramAuto/1.0 (https://chedlab.org/instagram) python-requests"}
 TOPICS = ["WORLD", "ENTERTAINMENT", "SPORTS", "TECHNOLOGY", "SCIENCE"]
 
 
@@ -59,6 +62,32 @@ def fetch_trending(limit=40):
     return stories[:limit]
 
 
+def resolve_google_news(url):
+    """news.google.com/rss/articles/<id> only redirects with JavaScript: ask Google for the publisher URL."""
+    m = re.search(r"news\.google\.com/(?:rss/)?articles/([^?/]+)", url)
+    if not m:
+        return url
+    art_id = m.group(1)
+    try:
+        page = requests.get(f"https://news.google.com/articles/{art_id}", headers=UA, timeout=20).text
+        sig = re.search(r'data-n-a-sg="([^"]+)"', page).group(1)
+        ts = re.search(r'data-n-a-ts="([^"]+)"', page).group(1)
+        inner = ["garturlreq", [["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1, None, None, None,
+                                 None, None, 0, 1], "X", "X", 1, [1, 1, 1], 1, 1, None, 0, 0, None, 0],
+                 art_id, int(ts), sig]
+        r = requests.post(
+            "https://news.google.com/_/DotsSplashUi/data/batchexecute",
+            headers={**UA, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+            data={"f.req": json.dumps([[["Fbv4je", json.dumps(inner), None, "generic"]]])},
+            timeout=20,
+        )
+        rows = json.loads(r.text.split("\n\n")[1])[:-2]
+        resolved = json.loads(rows[0][2])[1]
+        return resolved if resolved.startswith("http") else url
+    except (requests.RequestException, AttributeError, IndexError, ValueError, TypeError):
+        return url
+
+
 def _og_image(url):
     try:
         r = requests.get(url, headers=UA, timeout=20, allow_redirects=True)
@@ -81,7 +110,7 @@ def _wikimedia_image(query):
                 "gsrsearch": f"filetype:bitmap {query}", "gsrnamespace": 6, "gsrlimit": 5,
                 "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 1600,
             },
-            headers=UA, timeout=20,
+            headers=WIKI_UA, timeout=20,
         )
         pages = r.json().get("query", {}).get("pages", {})
         for p in sorted(pages.values(), key=lambda p: p.get("index", 99)):
@@ -94,11 +123,11 @@ def _wikimedia_image(query):
 
 
 def find_image_url(story, keywords=""):
-    return _og_image(story["link"]) or _wikimedia_image(keywords or story["title"])
+    return _og_image(resolve_google_news(story["link"])) or _wikimedia_image(keywords or story["title"])
 
 
 def download_image(url, dest):
-    r = requests.get(url, headers=UA, timeout=30)
+    r = requests.get(url, headers=WIKI_UA if "wikimedia.org" in url else UA, timeout=30)
     r.raise_for_status()
     dest.write_bytes(r.content)
     return dest
