@@ -103,8 +103,8 @@ def text_card_background(label, out_path, size=(1600, 1200)):
     return out_path
 
 
-def feed_post(photo_path, headline, highlight, out_path):
-    """1080x1350 (4:5) feed image."""
+def feed_post(photo_path, headline, highlight, out_path, swipe=False):
+    """1080x1350 (4:5) feed image (the cover slide of a carousel when swipe=True)."""
     W, H, photo_h = 1080, 1350, 820
     img = Image.new("RGB", (W, H), (0, 0, 0))
     img.paste(load_photo(photo_path, (W, photo_h)), (0, 0))
@@ -113,6 +113,67 @@ def feed_post(photo_path, headline, highlight, out_path):
     img.paste((0, 0, 0), (0, photo_h - 160, W, photo_h), fade)
     draw_headline(img, (60, photo_h - 40, W - 60, H - 90), headline, highlight)
     draw_brand(img, (W // 2, H - 45))
+    if swipe:
+        ImageDraw.Draw(img).text((W - 40, H - 45), "SWIPE >>", font=_font(BRAND_FONT, 28, "ExtraBold"),
+                                 fill=_hex(config.ACCENT_COLOR), anchor="rm")
+    img.save(out_path, "JPEG", quality=92)
+    return out_path
+
+
+def _counter(img, index, total):
+    draw = ImageDraw.Draw(img)
+    font = _font(BRAND_FONT, 28, "Bold")
+    text = f"{index}/{total}"
+    w = draw.textlength(text, font=font)
+    x1, y0 = img.width - 36, 36
+    draw.rounded_rectangle((x1 - w - 36, y0, x1, y0 + 52), radius=26, fill=(0, 0, 0))
+    draw.text((x1 - 18 - w / 2, y0 + 26), text, font=font, fill=(255, 255, 255), anchor="mm")
+
+
+def fact_slide(photo_path, text, highlight, index, total, out_path):
+    """Carousel slide: full photo, story sentence on a dark panel, slide counter."""
+    W, H, photo_h = 1080, 1350, 900
+    img = Image.new("RGB", (W, H), (0, 0, 0))
+    img.paste(load_photo(photo_path, (W, photo_h)), (0, 0))
+    fade = Image.linear_gradient("L").resize((W, 200))
+    img.paste((0, 0, 0), (0, photo_h - 200, W, photo_h), fade)
+    draw = ImageDraw.Draw(img)
+    hot, accent = _highlight_words(highlight), _hex(config.ACCENT_COLOR)
+    box_top, box_bottom = photo_h - 60, H - 100
+    for size in range(62, 33, -4):
+        font = _font(BRAND_FONT, size, "ExtraBold")
+        lines = _wrap(draw, text.split(), font, W - 120)
+        line_h = int(size * 1.3)
+        if line_h * len(lines) <= box_bottom - box_top:
+            break
+    space = draw.textlength(" ", font=font)
+    y = box_top + ((box_bottom - box_top) - line_h * len(lines)) // 2
+    for line in lines:
+        x = (W - draw.textlength(" ".join(line), font=font)) / 2
+        for word in line:
+            color = accent if word.strip(".,!?:;'\"").upper() in hot else (255, 255, 255)
+            draw.text((x, y), word, font=font, fill=color)
+            x += draw.textlength(word, font=font) + space
+        y += line_h
+    _counter(img, index, total)
+    draw_brand(img, (W // 2, H - 45))
+    img.save(out_path, "JPEG", quality=92)
+    return out_path
+
+
+def cta_slide(out_path, index, total):
+    """Last carousel slide: follow call-to-action."""
+    W, H = 1080, 1350
+    img = Image.open(text_card_background("", out_path, size=(W, H))).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    accent = _hex(config.ACCENT_COLOR)
+    draw.text((W // 2, H // 2 - 170), "FOLLOW", font=_font(HEADLINE_FONT, 150), fill=(255, 255, 255), anchor="mm")
+    draw.text((W // 2, H // 2), config.BRAND_HANDLE.upper(), font=_font(HEADLINE_FONT, 110), fill=accent, anchor="mm")
+    draw.text((W // 2, H // 2 + 150), "FOR DAILY NEWS YOU CAN'T MISS", font=_font(BRAND_FONT, 40, "ExtraBold"),
+              fill=(255, 255, 255), anchor="mm")
+    draw.text((W // 2, H // 2 + 230), "LIKE  ·  SHARE  ·  SAVE", font=_font(BRAND_FONT, 34, "Bold"),
+              fill=(170, 170, 170), anchor="mm")
+    _counter(img, index, total)
     img.save(out_path, "JPEG", quality=92)
     return out_path
 

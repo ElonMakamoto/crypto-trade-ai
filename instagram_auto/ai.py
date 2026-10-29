@@ -84,6 +84,42 @@ def _gemini(prompt):
     return json.loads(re.sub(r"^```(?:json)?|```$", "", text.strip()))
 
 
+SLIDES_PROMPT = """You make Instagram carousel slides for a viral news page in the style of @pubity.
+Story headline: {headline}
+Article text (the ONLY source of facts; never add anything that is not in it):
+---
+{text}
+---
+Write {n} short slides that tell the story step by step after the headline slide, in {lang}.
+Each slide: one or two punchy sentences, max 22 words, using only facts from the article text.
+If the article text has fewer facts, return fewer slides (minimum 1).
+For each slide also give 1-2 words to colour as accent (exact substrings) and a 2-5 word photo search
+query for a DIFFERENT photo per slide (people, places or things named in that slide).
+Respond with JSON only: {{"slides": [{{"text": "...", "highlight": ["..."], "image_query": "..."}}]}}
+"""
+
+
+def _sentences(text):
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if 40 <= len(s.strip()) <= 180]
+
+
+def write_slides(pick, story, article_text, n=4):
+    """Fact slides for a carousel, written only from the article text."""
+    if config.GOOGLE_API_KEY and len(article_text) > 200:
+        try:
+            data = _gemini(SLIDES_PROMPT.format(headline=pick["headline"], text=article_text[:4000], n=n,
+                                                lang=config.POST_LANGUAGE))
+            slides = [sl for sl in data.get("slides", []) if sl.get("text")]
+            if slides:
+                return slides[:n]
+        except (requests.RequestException, KeyError, ValueError) as e:
+            print(f"[ai] slides failed ({e}) — using article sentences")
+    # no AI or no article text: quote the article's own first sentences
+    words = re.findall(r"[A-Z][\w'-]+", story["title"])
+    return [{"text": sentence, "highlight": [], "image_query": " ".join(words[i:i + 3]) or story["title"]}
+            for i, sentence in enumerate(_sentences(article_text)[:n])]
+
+
 def _fallback(stories, n):
     picks = []
     for s in stories[:n]:

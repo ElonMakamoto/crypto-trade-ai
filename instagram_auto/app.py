@@ -505,9 +505,12 @@ def selftest(report):
         tmp = Path(tempfile.mkdtemp())
         photo = tmp / "photo.jpg"
         Image.new("RGB", (1200, 900), (40, 90, 160)).save(photo)
-        render.feed_post(photo, "SELF TEST HEADLINE WORKS", ["SELF", "TEST"], tmp / "post.jpg")
+        render.feed_post(photo, "SELF TEST HEADLINE WORKS", ["SELF", "TEST"], tmp / "post.jpg", swipe=True)
+        render.fact_slide(photo, "A fact slide renders with its own photo.", ["fact"], 2, 3, tmp / "slide.jpg")
+        render.cta_slide(tmp / "cta.jpg", 3, 3)
+        card = render.text_card_background("Test", tmp / "card.jpg")
         pick = {"headline": "SELF TEST REEL", "highlight": ["REEL"], "reel_lines": ["one", "two"]}
-        video = reel.build_reel(photo, pick, tmp, tmp / "reel.mp4")
+        video = reel.build_reel([photo, card], pick, tmp, tmp / "reel.mp4")
         reel.extract_cover(video, tmp / "cover.jpg")
         assert secure_store.decrypt(secure_store.encrypt("secret")) == "secret"
         assert Client().user_id is None
