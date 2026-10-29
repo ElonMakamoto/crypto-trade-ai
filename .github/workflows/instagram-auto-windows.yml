@@ -1,0 +1,74 @@
+name: Instagram Auto (Windows app)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "instagram_auto/**"
+      - ".github/workflows/instagram-auto-windows.yml"
+  pull_request:
+    paths:
+      - "instagram_auto/**"
+      - ".github/workflows/instagram-auto-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instagram-auto-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: instagram_auto
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: instagram_auto/requirements.txt
+
+      - name: Install
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Stamp version
+        shell: bash
+        run: echo "${GITHUB_SHA::7}" > version.txt
+
+      - name: Build InstagramAuto.exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed --name InstagramAuto
+          --add-data "fonts;fonts" --add-data "version.txt;."
+          --collect-all imageio_ffmpeg --collect-all curl_cffi --collect-submodules instagrapi
+          app.py
+
+      - name: Self-test the .exe
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\InstagramAuto.exe -ArgumentList '--selftest', "$PWD\selftest.txt" -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InstagramAuto
+          path: instagram_auto/dist/InstagramAuto.exe
+
+      - name: Publish download (latest)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete instagram-auto-latest --yes --cleanup-tag || true
+          gh release create instagram-auto-latest dist/InstagramAuto.exe \
+            --title "Instagram Auto for Windows" \
+            --target "$GITHUB_SHA" \
+            --notes "build: ${GITHUB_SHA::7} — 자동 빌드된 최신 버전입니다. InstagramAuto.exe를 받아 실행하세요."

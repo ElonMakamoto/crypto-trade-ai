@@ -1,0 +1,9 @@
+output/
+.env
+state/
+settings.json
+version.txt
+build/
+dist/
+*.spec
+__pycache__/
