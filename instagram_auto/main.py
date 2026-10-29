@@ -176,6 +176,7 @@ def run_once(dry_run=False, poster=None, only=None):
             story, ctx, cover = by_id[pick["id"]], news.article_context(by_id[pick["id"]]), (None, None)
         picks.remove(pick)
         details = ai.write_details(pick, story, ctx["text"], n_slides=MAX_FACT_SLIDES if kind == "post" else 0)
+        ai.localize(pick, details)  # nothing left in English on the Korean/Japanese channels
         caption = build_caption(pick, story, details)
         (workdir / f"{kind}_caption.txt").write_text(caption, encoding="utf-8")
         if kind == "post":
