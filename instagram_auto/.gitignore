@@ -1,0 +1,4 @@
+output/
+.env
+state/ig_session.json
+__pycache__/
