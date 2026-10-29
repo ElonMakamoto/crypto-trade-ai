@@ -116,9 +116,7 @@ class GraphPoster:
             return {"user_id": data["id"], "username": data.get("username", "")}
         account = self._linked_instagram_account()
         # remember it so later rounds skip the lookup
-        saved = config.load_settings()
-        saved["IG_USER_ID"] = account["id"]
-        config.save_settings(saved)
+        config.remember("IG_USER_ID", account["id"])
         print(f"[poster] found Instagram business account {account['id']} (@{account.get('username', '')})")
         return {"user_id": account["id"], "username": account.get("username", "")}
 

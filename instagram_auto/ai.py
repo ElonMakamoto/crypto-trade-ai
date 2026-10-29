@@ -5,6 +5,7 @@ import re
 import requests
 
 import config
+import l10n
 
 PROMPT = """You run a viral Instagram news/pop-culture page in the style of @pubity.
 From the trending stories below, pick the {n} most viral, shareable ones
@@ -127,7 +128,8 @@ Article text (the ONLY source of facts; never add anything that is not in it):
 Write in {lang}:
 1. "caption": a detailed Instagram caption, 4-6 sentences. {caption_guide} No hashtags in it.
 2. "hashtags": exactly 5 hashtags without '#': 3 specific to this story (people, places, organisations,
-   events), then 2 broader topic ones (e.g. news, worldnews, sports). No spaces inside a hashtag.
+   events), then 2 broader topic ones (e.g. news, worldnews, sports). Write them the way {lang}-speaking
+   Instagram users search (e.g. 자연재해 for Korean, 自然災害 for Japanese). No spaces inside a hashtag.
 3. "slides": {n} short carousel slides that tell the story step by step after the headline slide.
    Each: one or two punchy sentences, max 22 words, only facts from the article text; if there are fewer
    facts, return fewer slides. For each slide give "highlight" (1-2 words to colour, exact substrings) and
@@ -143,7 +145,8 @@ CAPTION_GUIDE = {
     True: "This is a natural disaster report: what happened, where and when, its strength (magnitude, "
           "category, wind speed, area burned...), casualties, injuries and damage, evacuations, warnings or "
           "rescue efforts, and what is expected next. Factual and respectful, never sensational or joking. "
-          "End with a short line like 'Stay safe 🙏 Share to keep others informed.' 1-3 fitting emojis "
+          "End with a short line like 'Stay safe 🙏 Share to keep others informed.' (in the caption language). "
+          "1-3 fitting emojis "
           "(e.g. ⚠️ 🌀 🔥 🌊).",
 }
 
@@ -171,7 +174,7 @@ def _fallback_details(pick, story, article_text, n):
     slide_texts = (sentences[:n] + [r.split(": ", 1)[0].upper() + ": " + r.split(": ", 1)[1] for r in related])[:n]
     body = " ".join(sentences[:5]) or story["title"] + "."
     more = "\n".join(f"• {r}" for r in related[:3])
-    ending = "Stay safe 🙏 Share to keep others informed." if config.NEWS_FOCUS == "disasters" else "What do you think? 👇"
+    ending = l10n.t("ending_")
     caption = f"{body}\n\n{more}\n\n{ending}" if more else f"{body}\n\n{ending}"
     names = [w for w in words if len(w) > 2 and w.lower() not in ("the", "and", "now", "what", "why", "how")]
     # 3 from the story's names, then the topic and general news
@@ -212,7 +215,7 @@ def _fallback(stories, n):
             "id": s["id"],
             "headline": s["title"].upper(),
             "highlight": [w.upper() for w in words[:2]],
-            "caption": f"{s['title']}\n\nStay safe 🙏" if config.NEWS_FOCUS == "disasters" else f"{s['title']} 👀\n\nWhat do you think?",
+            "caption": f"{s['title']}\n\n{l10n.t('ending_')}",
             "hashtags": ["news", "breaking", "trending", "viral", "fyp", "explore"],
             "image_query": " ".join(words[:4]),
             "reel_lines": [s["title"]],

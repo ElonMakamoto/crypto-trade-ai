@@ -1,9 +1,17 @@
 # instagram_auto
 
-지금 뜨는 뉴스를 [@pubity](https://instagram.com/pubity) 스타일 이미지와 릴스로 만들어 정해진 간격(기본 **5시간**)마다 인스타그램에 자동 업로드하는 **Windows 앱**입니다.
+자연재해 뉴스를 [@pubity](https://instagram.com/pubity) 스타일 이미지와 릴스로 만들어 **English · 한국어 · 日本語** 세 인스타그램 계정에 자동으로 올리는 **Windows 앱**입니다. 세 채널은 같은 뉴스를 각자의 언어로 쓰고, 사진 순서를 조금씩 다르게 해서 각자 정한 시간에 올립니다.
 
 - 다운로드와 설명: **https://chedlab.org/instagram**
 - 직접 받기: [InstagramAuto.exe](https://github.com/ElonMakamoto/crypto-trade-ai/releases/download/instagram-auto-latest/InstagramAuto.exe)
+
+## 화면
+
+- 채널 3개(English, 한국어, 日本語)가 나란히 보입니다. 채널마다 **▶ 자동 시작**, **🎬 릴스**, **🖼 게시물**, **👁 미리보기** 버튼, 미리보기, 로그가 따로 있습니다.
+- **⚙ 설정**을 누르면 설정 창이 열립니다.
+  - **공통**: Google API 키, Meta 액세스 토큰(모든 채널 공통), 뉴스 주제, 강조 색상, 음악 폴더, Windows 시작 시 자동 실행
+  - **채널별**: 사용 여부, 인스타 비즈니스 계정 ID, 이미지에 넣을 계정명, 자동 업로드 시간(최대 5개), 올릴 것
+- 시간 기준: English는 뉴욕시간, 한국어·日本語는 한국시간. 같은 시간에 겹치면 한 채널씩 차례로 올립니다.
 
 ## 사용 방법
 
@@ -76,4 +84,4 @@ python main.py --loop             # 명령줄: 간격마다 계속 업로드 (.e
 
 - 아이디/비밀번호 방식(instagrapi)은 비공식이라 인스타가 막거나 계정을 제한할 수 있습니다. 공식 API를 권장하고, 간격은 4~6시간을 권장합니다.
 - 뉴스 사진과 기사의 저작권은 각 언론사에 있습니다. 출처는 캡션에 자동으로 들어갑니다.
-- 폰트: Anton, Montserrat (SIL Open Font License, `fonts/OFL.txt`).
+- 폰트: Anton, Montserrat, Black Han Sans, Noto Sans KR, Dela Gothic One, Noto Sans JP (모두 SIL Open Font License, `fonts/OFL.txt`, `fonts/OFL-cjk.txt`).

@@ -75,7 +75,8 @@ def load_settings():
 def save_settings(values):
     import secure_store
 
-    data = {k: str(v).strip() for k, v in values.items()}
+    # nested dicts (per-channel settings) are kept as they are
+    data = {k: v if isinstance(v, dict) else str(v).strip() for k, v in values.items()}
     for key in SECRET_KEYS & data.keys():
         data[key] = secure_store.encrypt(data[key])
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -97,6 +98,73 @@ def reload():
     g["INTERVAL_HOURS"] = float(g["INTERVAL_HOURS"] or 5)
     g["REEL_SECONDS"] = int(g["REEL_SECONDS"] or 8)
     g["MUSIC_DIR"] = Path(g["MUSIC_DIR"]) if g["MUSIC_DIR"] else BASE_DIR / "assets" / "music"
+    if ACTIVE_CHANNEL:
+        _apply(ACTIVE_CHANNEL, saved)
 
 
+# ---------- channels: one Instagram account per language, same Meta token ----------
+CHANNELS = {
+    "en": {"name": "English", "language": "English", "tz": "America/New_York", "tz_label": "뉴욕시간"},
+    "ko": {"name": "한국어", "language": "Korean", "tz": "Asia/Seoul", "tz_label": "한국시간"},
+    "ja": {"name": "日本語", "language": "Japanese", "tz": "Asia/Seoul", "tz_label": "한국시간"},
+}
+CHANNEL_DEFAULTS = {"ENABLED": "", "IG_USER_ID": "", "BRAND_HANDLE": "@yourpage",
+                    "POST_TIMES": "09:00,12:00,15:00,18:00,21:00", "POST_MODE": "alternate"}
+ACTIVE_CHANNEL = None
+_BASE_OUTPUT_DIR, _BASE_STATE_FILE = OUTPUT_DIR, STATE_FILE
+
+
+def load_channel(cid, saved=None):
+    """A channel's settings; the English channel starts from the single-account settings of older versions."""
+    saved = load_settings() if saved is None else saved
+    channels = saved.get("CHANNELS") if isinstance(saved.get("CHANNELS"), dict) else {}
+    values = dict(CHANNEL_DEFAULTS)
+    if cid == "en":
+        values["ENABLED"] = "1"
+        if cid not in channels:
+            values.update({k: saved[k] for k in CHANNEL_DEFAULTS if saved.get(k)})
+    values.update({k: str(v) for k, v in channels.get(cid, {}).items() if k in CHANNEL_DEFAULTS})
+    return values
+
+
+def save_channel(cid, values):
+    saved = load_settings()
+    channels = saved.get("CHANNELS") if isinstance(saved.get("CHANNELS"), dict) else {}
+    channels[cid] = {k: str(values.get(k, "")).strip() for k in CHANNEL_DEFAULTS}
+    saved["CHANNELS"] = channels
+    save_settings(saved)
+
+
+def remember(key, value):
+    """Save a value found while running (e.g. the auto-detected IG account id) to the active channel."""
+    if ACTIVE_CHANNEL:
+        values = load_channel(ACTIVE_CHANNEL)
+        values[key] = value
+        save_channel(ACTIVE_CHANNEL, values)
+    else:
+        saved = load_settings()
+        saved[key] = value
+        save_settings(saved)
+
+
+def _apply(cid, saved):
+    g = globals()
+    meta = CHANNELS[cid]
+    values = load_channel(cid, saved)
+    g.update(CHANNEL=cid, CHANNEL_INDEX=list(CHANNELS).index(cid), POST_LANGUAGE=meta["language"],
+             TIMEZONE=meta["tz"], BRAND_HANDLE=values["BRAND_HANDLE"], IG_USER_ID=values["IG_USER_ID"],
+             POST_TIMES=values["POST_TIMES"], POST_MODE=values["POST_MODE"])
+    # each channel keeps its own output folder and posted-stories record
+    g["OUTPUT_DIR"] = _BASE_OUTPUT_DIR / cid
+    g["STATE_FILE"] = _BASE_STATE_FILE if cid == "en" else _BASE_STATE_FILE.with_name(f"posted_{cid}.json")
+
+
+def use_channel(cid):
+    """Make every module read this channel's settings (language, account, schedule...)."""
+    global ACTIVE_CHANNEL
+    ACTIVE_CHANNEL = cid
+    reload()
+
+
+CHANNEL, CHANNEL_INDEX, TIMEZONE = None, 0, "America/New_York"
 reload()

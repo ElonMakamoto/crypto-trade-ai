@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 import ai
 import config
+import l10n
 import news
 import reel
 import render
@@ -40,7 +41,10 @@ def space_sentences(text):
     """A blank line after every full stop that ends a sentence (not after ? or !, abbreviations or decimals)."""
     abbrev = "".join(f"(?<!\\b{a})" for a in ABBREVIATIONS)
     # a lowercase letter, digit or closing quote/bracket before the stop rules out initials like "U.S."
-    return re.sub(rf"(?<=[a-z0-9)\"'”’]){abbrev}\.[ \t]+(?=\S)", ".\n\n", text)
+    text = re.sub(rf"(?<=[a-z0-9)\"'”’]){abbrev}\.[ \t]+(?=\S)", ".\n\n", text)
+    # Korean sentences end in a Hangul syllable before the stop; Japanese uses "。"
+    text = re.sub(r"(?<=[\uac00-\ud7a3])\.[ \t]+(?=\S)", ".\n\n", text)
+    return re.sub(r"。[ \t]*(?=[^\s」』）)])", "。\n\n", text)
 
 
 def build_caption(pick, story, details):
@@ -52,27 +56,32 @@ def build_caption(pick, story, details):
         if tag and tag.lower() not in seen:
             seen.add(tag.lower())
             tags.append("#" + tag)
-    source = f"\n📰 Source: {story['source']}" if story.get("source") else ""
-    what = "natural disaster updates" if config.NEWS_FOCUS == "disasters" else "daily news"
-    follow = f"\n\n👉 Follow {config.BRAND_HANDLE} for {what}"
+    source = "\n" + l10n.t("source", source=story["source"]) if story.get("source") else ""
+    follow = "\n\n" + l10n.t("follow_line_", handle=config.BRAND_HANDLE)
     return f"{text}{follow}{source}\n\n{' '.join(tags[:HASHTAGS])}".strip()[:2200]
 
 
 def find_cover(story, ctx, query, workdir, tag):
-    """A real photo related to the story for the front, or None if none can be found."""
-    tried = set()
+    """A real photo related to the story for the front, or None if none can be found.
+
+    Channels start from different candidates (English the best, Korean the 2nd, Japanese the 3rd) so the
+    same story doesn't get identical posts; if fewer exist, the last one found is used.
+    """
+    prefer, found, tried = config.CHANNEL_INDEX, [], set()
     for url in news.cover_candidates(story, ctx, query):
         if url in tried:
             continue
         tried.add(url)
-        dest = workdir / f"{tag}_cover.img"
+        dest = workdir / f"{tag}_cover{len(found)}.img"
         try:
             news.download_image(url, dest)
             render.load_photo(dest, (64, 64))  # validate it opens
-            return dest, url
+            found.append((dest, url))
+            if len(found) > prefer:
+                break
         except Exception as e:  # bad download or unreadable image
             print(f"[main] cover photo skipped ({e})")
-    return None, None
+    return found[-1] if found else (None, None)
 
 
 def gather_photos(story, ctx, queries, needed, workdir, tag, cover=None, cover_url=None):
@@ -100,7 +109,10 @@ def gather_photos(story, ctx, queries, needed, workdir, tag, cover=None, cover_u
     while len(photos) < needed:
         photos.append(render.text_card_background(story.get("source") or story.get("topic", ""),
                                                   workdir / f"{tag}_card{len(photos)}.jpg"))
-    return photos
+    # each language channel shows the inner photos in a different order
+    first, rest = photos[:1], photos[1:]
+    shift = config.CHANNEL_INDEX % len(rest) if rest else 0
+    return first + rest[shift:] + rest[:shift]
 
 
 def build_album(pick, story, ctx, details, cover, workdir, stamp):
