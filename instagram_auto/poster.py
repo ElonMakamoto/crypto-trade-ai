@@ -69,11 +69,31 @@ class GraphPoster:
         return r.json()
 
     def whoami(self):
-        """{'user_id': ..., 'username': ...} for the token's account."""
+        """{'user_id': ..., 'username': ...} for the token's Instagram account."""
         if self.instagram_login:
             return self._get("me", fields="user_id,username")
-        data = self._get(config.IG_USER_ID or "me", fields="id,username")
-        return {"user_id": data["id"], "username": data.get("username", "")}
+        if config.IG_USER_ID:
+            data = self._get(config.IG_USER_ID, fields="id,username")
+            return {"user_id": data["id"], "username": data.get("username", "")}
+        account = self._linked_instagram_account()
+        return {"user_id": account["id"], "username": account.get("username", "")}
+
+    def _linked_instagram_account(self):
+        """Facebook-login token: the Instagram account connected to the user's (or this) Facebook Page."""
+        field = "instagram_business_account{id,username}"
+        try:
+            pages = self._get("me/accounts", fields=f"name,{field}").get("data", [])
+        except RuntimeError:
+            pages = [self._get("me", fields=f"name,{field}")]  # a Page token: /me is the Page itself
+        for page in pages:
+            if page.get(field.split("{")[0]):
+                return page["instagram_business_account"]
+        names = ", ".join(p.get("name", "?") for p in pages) or "없음"
+        raise RuntimeError(
+            "이 토큰은 페이스북(EAA...) 토큰인데, 연결된 인스타 프로페셔널 계정을 찾지 못했습니다 "
+            f"(찾은 페이스북 페이지: {names}). 인스타 계정을 페이스북 페이지에 연결하고 "
+            "instagram_basic, instagram_content_publish, pages_show_list 권한으로 토큰을 다시 만들거나, "
+            "'Instagram 로그인을 통한 API 설정'에서 IG로 시작하는 토큰을 받아 주세요.")
 
     def _refresh_token(self):
         """Long-lived Instagram tokens last 60 days; refresh weekly so they never expire."""
