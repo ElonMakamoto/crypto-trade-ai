@@ -7,6 +7,7 @@
 """
 import argparse
 import json
+import re
 import time
 from datetime import datetime, timezone
 
@@ -17,6 +18,7 @@ import reel
 import render
 
 MAX_FACT_SLIDES = 4  # cover + up to 4 fact slides + follow slide = 3-6 images
+HASHTAGS = 5
 
 
 def load_state():
@@ -31,10 +33,18 @@ def save_state(state):
     config.STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def build_caption(pick, story):
-    tags = " ".join("#" + t.lstrip("#").replace(" ", "") for t in pick.get("hashtags", []))
-    source = f"\n\n📰 Source: {story['source']}" if story.get("source") else ""
-    return f"{pick['caption']}{source}\n\n{tags}".strip()[:2200]
+def build_caption(pick, story, details):
+    """Detailed description + follow line + source + 5 hashtags."""
+    text = details.get("caption") or pick.get("caption", "")
+    tags, seen = [], set()
+    for tag in list(details.get("hashtags", [])) + list(pick.get("hashtags", [])):
+        tag = re.sub(r"[^\w]", "", str(tag).lstrip("#"))
+        if tag and tag.lower() not in seen:
+            seen.add(tag.lower())
+            tags.append("#" + tag)
+    source = f"\n📰 Source: {story['source']}" if story.get("source") else ""
+    follow = f"\n\n👉 Follow {config.BRAND_HANDLE} for daily news"
+    return f"{text}{follow}{source}\n\n{' '.join(tags[:HASHTAGS])}".strip()[:2200]
 
 
 def gather_photos(story, ctx, queries, needed, workdir, tag):
@@ -64,10 +74,9 @@ def gather_photos(story, ctx, queries, needed, workdir, tag):
     return photos
 
 
-def build_album(pick, story, workdir, stamp):
+def build_album(pick, story, ctx, details, workdir, stamp):
     """Cover + 2-4 fact slides (each with its own photo) + follow slide = 3-6 images."""
-    ctx = news.article_context(story)
-    slides = ai.write_slides(pick, story, ctx["text"], n=MAX_FACT_SLIDES)
+    slides = details["slides"]
     queries = [pick.get("image_query", "")] + [sl.get("image_query", "") for sl in slides] + [story["title"]]
     photos = gather_photos(story, ctx, queries, 1 + len(slides), workdir, "post")
     # nothing more to tell than the headline: a comment slide keeps the carousel at 3 slides
@@ -111,15 +120,16 @@ def run_once(dry_run=False, poster=None, only=None):
     built = []
     for kind, pick in zip(kinds, picks):
         story = by_id[pick["id"]]
-        caption = build_caption(pick, story)
+        ctx = news.article_context(story)
+        details = ai.write_details(pick, story, ctx["text"], n_slides=MAX_FACT_SLIDES if kind == "post" else 0)
+        caption = build_caption(pick, story, details)
         (workdir / f"{kind}_caption.txt").write_text(caption, encoding="utf-8")
         if kind == "post":
-            media = build_album(pick, story, workdir, stamp)
+            media = build_album(pick, story, ctx, details, workdir, stamp)
             cover = media[0]
         else:
             lines = [l for l in (pick.get("reel_lines") or []) if l][:3] or [""]
-            photos = gather_photos(story, news.article_context(story),
-                                   [pick.get("image_query", ""), story["title"]], len(lines), workdir, "reel")
+            photos = gather_photos(story, ctx, [pick.get("image_query", ""), story["title"]], len(lines), workdir, "reel")
             media = [reel.build_reel(photos, pick, workdir, workdir / f"reel-{stamp}.mp4")]
             cover = reel.extract_cover(media[0], workdir / f"reel-{stamp}.jpg")
         print(f"[main] {kind} ({len(media)} file{'s' if len(media) > 1 else ''}): {pick['headline']}")
