@@ -112,7 +112,12 @@ class GraphPoster:
         if self.instagram_login:
             return self._get("me", fields="user_id,username")
         if config.IG_USER_ID:
-            data = self._get(config.IG_USER_ID, fields="id,username")
+            try:
+                data = self._get(config.IG_USER_ID, fields="id,username")
+            except MetaAPIError as e:
+                if e.code != 100:
+                    raise
+                raise RuntimeError(self._no_access_help(config.IG_USER_ID)) from None
             return {"user_id": data["id"], "username": data.get("username", "")}
         account = self._linked_instagram_account()
         # remember it so later rounds skip the lookup
@@ -120,16 +125,31 @@ class GraphPoster:
         print(f"[poster] found Instagram business account {account['id']} (@{account.get('username', '')})")
         return {"user_id": account["id"], "username": account.get("username", "")}
 
-    def _linked_instagram_account(self):
-        """EAA token: the Instagram business account connected to the token's Facebook Page(s)."""
+    def _pages(self):
+        """Facebook Pages this token can use, with their linked Instagram account (if any)."""
         field = "instagram_business_account{id,username}"
         try:
-            pages = self._get("me/accounts", fields=f"name,{field}").get("data", [])
+            return self._get("me/accounts", fields=f"name,{field}", limit=100).get("data", [])
         except RuntimeError:
             try:
-                pages = [self._get("me", fields=f"name,{field}")]  # a Page token: /me is the Page itself
+                return [self._get("me", fields=f"name,{field}")]  # a Page token: /me is the Page itself
             except RuntimeError:
-                pages = []
+                return []
+
+    def _no_access_help(self, ig_id):
+        """Why an account id can't be used, with the accounts this token CAN reach."""
+        reachable = [f"@{p['instagram_business_account'].get('username', '?')} "
+                     f"(ID {p['instagram_business_account']['id']}, 페이지 '{p.get('name', '?')}')"
+                     for p in self._pages() if p.get("instagram_business_account")]
+        listing = "\n".join(f"  • {r}" for r in reachable) or "  (없음)"
+        return (f"인스타 계정 ID {ig_id} 에 이 Meta 토큰으로 접근할 수 없습니다.\n\n"
+                f"이 토큰이 지금 접근할 수 있는 인스타 계정:\n{listing}\n\n"
+                "목록에 없다면 Meta 비즈니스 설정에서 이 계정(과 연결된 페이스북 페이지)을 토큰의 시스템 사용자에게 "
+                "자산으로 할당해 주세요. 자세한 방법은 '인스타 토큰 받는 법' 안내를 보세요.")
+
+    def _linked_instagram_account(self):
+        """EAA token: the Instagram business account connected to the token's Facebook Page(s)."""
+        pages = self._pages()
         for page in pages:
             if page.get("instagram_business_account"):
                 return page["instagram_business_account"]
