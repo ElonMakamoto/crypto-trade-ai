@@ -35,24 +35,23 @@ def build_caption(pick, story):
 
 
 def prepare(picks, stories, workdir, needed):
-    """Attach a downloaded photo to each pick; skip stories without a usable image."""
+    """Attach a photo to each pick; without one, use a Pubity-style text card background."""
     by_id = {s["id"]: s for s in stories}
     ready = []
-    for pick in picks:
+    for pick in picks[:needed]:
         story = by_id[pick["id"]]
+        photo = workdir / f"photo_{len(ready)}.img"
         url = news.find_image_url(story, pick.get("image_query", ""))
-        if not url:
-            print(f"[main] no image for: {story['title']}")
-            continue
         try:
-            photo = news.download_image(url, workdir / f"photo_{len(ready)}.img")
+            if not url:
+                raise ValueError("no image found")
+            news.download_image(url, photo)
             render.load_photo(photo, (64, 64))  # validate it opens
-        except Exception as e:  # bad download or unreadable image
-            print(f"[main] image failed for {story['title']}: {e}")
-            continue
+        except Exception as e:  # no image, bad download or unreadable image
+            print(f"[main] no photo for: {story['title']} ({e}) — using a text card")
+            photo = render.text_card_background(story.get("source") or story.get("topic", ""),
+                                                workdir / f"card_{len(ready)}.jpg")
         ready.append((pick, story, photo))
-        if len(ready) == needed:
-            break
     return ready
 
 

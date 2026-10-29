@@ -84,6 +84,25 @@ def load_photo(path, size):
     return ImageOps.fit(photo, size, Image.LANCZOS, centering=(0.5, 0.35))
 
 
+def text_card_background(label, out_path, size=(1600, 1200)):
+    """A dark accent-gradient backdrop (used when a story has no usable photo)."""
+    W, H = size
+    accent = _hex(config.ACCENT_COLOR)
+    img = Image.new("RGB", (W, H), (12, 12, 12))
+    glow = Image.new("RGB", (W, H), tuple(int(c * 0.35) for c in accent))
+    mask = Image.radial_gradient("L").resize((W, H)).point(lambda v: 255 - v)
+    img.paste(glow, (0, 0), mask)
+    draw = ImageDraw.Draw(img)
+    for x in range(-H, W, 60):  # subtle diagonal stripes
+        draw.line([(x, 0), (x + H, H)], fill=(24, 24, 24), width=3)
+    if label:
+        font = _font(HEADLINE_FONT, 150)
+        draw.text((W // 2, H // 2), label.upper()[:24], font=font, fill=tuple(min(255, int(c * 0.55)) for c in accent),
+                  anchor="mm")
+    img.save(out_path, "JPEG", quality=92)
+    return out_path
+
+
 def feed_post(photo_path, headline, highlight, out_path):
     """1080x1350 (4:5) feed image."""
     W, H, photo_h = 1080, 1350, 820
