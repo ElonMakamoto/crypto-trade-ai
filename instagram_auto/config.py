@@ -52,7 +52,9 @@ DEFAULTS = {
     # "alternate" (one per round: reel, then 3-6 slide carousel, then reel...), "reel" or "post"
     # ("both" — a carousel and a reel each round — is still accepted from .env, not offered in the app)
     "POST_MODE": "alternate",
-    "INTERVAL_HOURS": "5",
+    # daily upload times for the app's auto mode, New York time (up to 5)
+    "POST_TIMES": "09:00,12:00,15:00,18:00,21:00",
+    "INTERVAL_HOURS": "5",  # used by the command-line --loop only
     "REEL_SECONDS": "8",
     "MUSIC_DIR": "",
 }
