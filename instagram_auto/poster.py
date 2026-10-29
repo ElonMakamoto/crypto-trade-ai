@@ -23,6 +23,9 @@ class InstagrapiPoster:
         try:
             self.cl.login(config.IG_USERNAME, config.IG_PASSWORD)
         except Exception as e:
+            if type(e).__name__ == "ClientNeedsUpgradeError":
+                raise RuntimeError("Instagram is currently blocking ID/password logins from this tool "
+                                   "('app out of date'). Switch to the official API login.") from e
             if not ask_code or "TwoFactorRequired" not in type(e).__name__:
                 raise
             code = ask_code("Enter the 6-digit code from your two-factor authentication app / SMS:")
@@ -38,45 +41,87 @@ class InstagrapiPoster:
 
 
 class GraphPoster:
+    """Official Instagram API (Professional account).
+
+    Tokens from "API setup with Instagram login" (start with IG...) use graph.instagram.com;
+    Facebook-login tokens (EAA...) use graph.facebook.com.
+    """
+
     def __init__(self):
-        if not (config.IG_ACCESS_TOKEN and config.IG_USER_ID):
-            raise RuntimeError("IG_ACCESS_TOKEN / IG_USER_ID are required for IG_BACKEND=graph")
-        self.api = f"https://graph.facebook.com/{config.GRAPH_VERSION}"
+        if not config.IG_ACCESS_TOKEN:
+            raise RuntimeError("Instagram access token is required for the official API")
+        host = "graph.instagram.com" if config.IG_ACCESS_TOKEN.startswith("IG") else "graph.facebook.com"
+        self.instagram_login = host == "graph.instagram.com"
+        self.api = f"https://{host}/{config.GRAPH_VERSION}"
+        self._refresh_token()
+        self.user_id = config.IG_USER_ID or self.whoami()["user_id"]
+
+    def _get(self, path, **params):
+        r = requests.get(f"{self.api}/{path}", params={**params, "access_token": config.IG_ACCESS_TOKEN}, timeout=30)
+        if not r.ok:
+            raise RuntimeError(f"Instagram API {path}: {r.text}")
+        return r.json()
 
     def _post(self, path, **data):
         r = requests.post(f"{self.api}/{path}", data={**data, "access_token": config.IG_ACCESS_TOKEN}, timeout=60)
         if not r.ok:
-            raise RuntimeError(f"Graph API {path}: {r.text}")
+            raise RuntimeError(f"Instagram API {path}: {r.text}")
         return r.json()
+
+    def whoami(self):
+        """{'user_id': ..., 'username': ...} for the token's account."""
+        if self.instagram_login:
+            return self._get("me", fields="user_id,username")
+        data = self._get(config.IG_USER_ID or "me", fields="id,username")
+        return {"user_id": data["id"], "username": data.get("username", "")}
+
+    def _refresh_token(self):
+        """Long-lived Instagram tokens last 60 days; refresh weekly so they never expire."""
+        if not self.instagram_login:
+            return
+        saved = config.load_settings()
+        refreshed_at = float(saved.get("TOKEN_REFRESHED_AT") or 0)
+        if not refreshed_at:
+            # first use of this token: start its refresh clock
+            saved["TOKEN_REFRESHED_AT"] = str(time.time())
+            config.save_settings(saved)
+            return
+        if time.time() - refreshed_at < 7 * 86400:
+            return
+        r = requests.get("https://graph.instagram.com/refresh_access_token",
+                         params={"grant_type": "ig_refresh_token", "access_token": config.IG_ACCESS_TOKEN}, timeout=30)
+        if r.ok and r.json().get("access_token"):
+            saved.update(IG_ACCESS_TOKEN=r.json()["access_token"], TOKEN_REFRESHED_AT=str(time.time()))
+            config.save_settings(saved)
+            print("[poster] access token refreshed")
+        else:
+            print(f"[poster] token refresh failed: {r.text}")
 
     def _wait_and_publish(self, creation_id):
         for _ in range(60):
-            status = requests.get(
-                f"{self.api}/{creation_id}",
-                params={"fields": "status_code", "access_token": config.IG_ACCESS_TOKEN}, timeout=30,
-            ).json().get("status_code")
+            status = self._get(creation_id, fields="status_code").get("status_code")
             if status == "FINISHED":
                 break
             if status == "ERROR":
                 raise RuntimeError("Instagram failed to process the media")
             time.sleep(10)
-        return self._post(f"{config.IG_USER_ID}/media_publish", creation_id=creation_id)["id"]
+        return self._post(f"{self.user_id}/media_publish", creation_id=creation_id)["id"]
 
     def post_image(self, path, caption):
-        if not config.PUBLIC_MEDIA_BASE_URL:
-            raise RuntimeError("Graph API feed posts need PUBLIC_MEDIA_BASE_URL (a public URL serving output/ media)")
-        url = f"{config.PUBLIC_MEDIA_BASE_URL}/{path.name}"
-        # the site may still be deploying the freshly committed image
-        for _ in range(30):
-            if requests.head(url, timeout=15).ok:
-                break
-            time.sleep(20)
-        creation = self._post(f"{config.IG_USER_ID}/media", image_url=url, caption=caption)
-        return self._wait_and_publish(creation["id"])
+        if config.PUBLIC_MEDIA_BASE_URL:
+            # the image must be reachable at a public URL for photo posts
+            creation = self._post(f"{self.user_id}/media", image_url=f"{config.PUBLIC_MEDIA_BASE_URL}/{path.name}",
+                                  caption=caption)
+            return self._wait_and_publish(creation["id"])
+        # no public URL: upload the design as a short still reel (shows in the grid the same way)
+        import reel
+
+        video = reel.still_video(path, path.with_suffix(".mp4"))
+        return self.post_reel(video, caption)
 
     def post_reel(self, path, caption, cover=None):
         # resumable upload sends the local file directly — no public URL needed
-        creation = self._post(f"{config.IG_USER_ID}/media", media_type="REELS",
+        creation = self._post(f"{self.user_id}/media", media_type="REELS",
                               upload_type="resumable", caption=caption, share_to_feed="true")
         data = path.read_bytes()
         r = requests.post(

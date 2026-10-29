@@ -30,6 +30,8 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 FIELDS = [
     # key, label, kind
     ("GOOGLE_API_KEY", "Google API 키", "secret"),
+    ("IG_BACKEND", "인스타 연결 방식", "backend"),
+    ("IG_ACCESS_TOKEN", "인스타 액세스 토큰", "secret"),
     ("IG_USERNAME", "인스타 아이디", "text"),
     ("IG_PASSWORD", "인스타 비밀번호", "secret"),
     ("BRAND_HANDLE", "이미지에 넣을 계정명", "text"),
@@ -39,6 +41,11 @@ FIELDS = [
     ("MUSIC_DIR", "릴스 배경음악 폴더 (선택)", "folder"),
 ]
 MODES = {"both": "게시물 + 릴스", "post": "게시물만", "reel": "릴스만"}
+BACKENDS = {"graph": "공식 API (추천)", "instagrapi": "아이디 / 비밀번호 (비공식)"}
+CHOICES = {"mode": MODES, "backend": BACKENDS}
+# which fields each login method needs
+BACKEND_FIELDS = {"graph": {"IG_ACCESS_TOKEN"}, "instagrapi": {"IG_USERNAME", "IG_PASSWORD"}}
+TOKEN_HELP_URL = "https://chedlab.org/instagram/#token"
 
 
 def app_version():
@@ -74,8 +81,8 @@ class App:
         self.preview_img = None
 
         root.title(APP_NAME)
-        root.geometry("980x680")
-        root.minsize(860, 600)
+        root.geometry("980x720")
+        root.minsize(860, 660)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         self._style()
         self._build()
@@ -114,18 +121,21 @@ class App:
         # settings
         form = ttk.LabelFrame(outer, text=" 설정 ", padding=12)
         form.grid(row=1, column=0, sticky="nsw", padx=(0, 12))
-        self.vars = {}
+        self.vars, self.rows = {}, {}
         for row, (key, label, kind) in enumerate(FIELDS):
-            ttk.Label(form, text=label).grid(row=row * 2, column=0, sticky="w", pady=(6 if row else 0, 2))
+            lbl = ttk.Label(form, text=label)
+            lbl.grid(row=row * 2, column=0, sticky="w", pady=(6 if row else 0, 2))
             var = tk.StringVar()
             self.vars[key] = var
             cell = ttk.Frame(form)
             cell.grid(row=row * 2 + 1, column=0, sticky="ew")
-            if kind == "mode":
-                box = ttk.Combobox(cell, state="readonly", values=list(MODES.values()), width=34)
-                box.bind("<<ComboboxSelected>>", lambda e, b=box, v=var: v.set(
-                    next(k for k, t in MODES.items() if t == b.get())))
-                var.trace_add("write", lambda *_, b=box, v=var: b.set(MODES.get(v.get(), "")))
+            self.rows[key] = (lbl, cell)
+            if kind in CHOICES:
+                options = CHOICES[kind]
+                box = ttk.Combobox(cell, state="readonly", values=list(options.values()), width=34)
+                box.bind("<<ComboboxSelected>>", lambda e, b=box, v=var, o=options: v.set(
+                    next(k for k, t in o.items() if t == b.get())))
+                var.trace_add("write", lambda *_, b=box, v=var, o=options: b.set(o.get(v.get(), "")))
                 box.pack(fill="x")
                 continue
             entry = ttk.Entry(cell, textvariable=var, width=30, show="•" if kind == "secret" else "")
@@ -138,13 +148,22 @@ class App:
             elif kind == "folder":
                 ttk.Button(cell, text="찾기", width=4, command=lambda v=var: self.pick_folder(v)).pack(side="left", padx=(4, 0))
 
-        link = ttk.Label(form, text="Google API 키 발급 →", foreground="#1a73e8", cursor="hand2")
-        link.grid(row=len(FIELDS) * 2, column=0, sticky="w", pady=(10, 0))
-        link.bind("<Button-1>", lambda e: webbrowser.open("https://aistudio.google.com/apikey"))
+        links = ttk.Frame(form)
+        links.grid(row=len(FIELDS) * 2, column=0, sticky="w", pady=(10, 0))
+        for text, url in [("Google API 키 발급 →", "https://aistudio.google.com/apikey"),
+                          ("인스타 토큰 받는 법 →", TOKEN_HELP_URL)]:
+            link = ttk.Label(links, text=text, foreground="#1a73e8", cursor="hand2")
+            link.pack(side="left", padx=(0, 12))
+            link.bind("<Button-1>", lambda e, u=url: webbrowser.open(u))
         self.startup_var = tk.BooleanVar(value=self.startup_enabled())
         ttk.Checkbutton(form, text="Windows 시작할 때 자동 실행", variable=self.startup_var,
                         command=self.toggle_startup).grid(row=len(FIELDS) * 2 + 1, column=0, sticky="w", pady=(8, 0))
-        ttk.Button(form, text="설정 저장", command=self.save).grid(row=len(FIELDS) * 2 + 2, column=0, sticky="ew", pady=(12, 0))
+        buttons = ttk.Frame(form)
+        buttons.grid(row=len(FIELDS) * 2 + 2, column=0, sticky="ew", pady=(12, 0))
+        buttons.columnconfigure((0, 1), weight=1)
+        ttk.Button(buttons, text="설정 저장", command=self.save).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(buttons, text="인스타 연결 확인", command=self.check_login).grid(row=0, column=1, sticky="ew")
+        self.vars["IG_BACKEND"].trace_add("write", lambda *_: self._show_login_fields())
 
         # right side: controls, preview, log
         right = ttk.Frame(outer)
@@ -173,6 +192,12 @@ class App:
         self.log.grid(row=0, column=1, sticky="nsew")
 
     # ---------- settings ----------
+    def _show_login_fields(self):
+        needed = BACKEND_FIELDS.get(self.vars["IG_BACKEND"].get(), set())
+        for key in set().union(*BACKEND_FIELDS.values()):
+            for widget in self.rows[key]:
+                widget.grid() if key in needed else widget.grid_remove()
+
     def _load_values(self):
         values = config.current()
         if not config.load_settings().get("MUSIC_DIR"):
@@ -198,6 +223,8 @@ class App:
             messagebox.showerror(APP_NAME, str(e))
             return False
         saved = config.load_settings()
+        if values.get("IG_ACCESS_TOKEN") != saved.get("IG_ACCESS_TOKEN"):
+            saved["TOKEN_REFRESHED_AT"] = ""  # new token: start its refresh clock now
         saved.update(values)
         config.save_settings(saved)
         if not quiet:
@@ -293,12 +320,32 @@ class App:
         threading.Thread(target=self._round, args=(dry_run,), daemon=True).start()
 
     def _ready(self):
+        if config.IG_BACKEND == "graph" and not config.IG_ACCESS_TOKEN:
+            messagebox.showwarning(APP_NAME, "인스타 액세스 토큰을 넣어 주세요.\n('인스타 토큰 받는 법'을 참고하세요)")
+            return False
         if config.IG_BACKEND == "instagrapi" and not (config.IG_USERNAME and config.IG_PASSWORD):
             messagebox.showwarning(APP_NAME, "인스타 아이디와 비밀번호를 넣어 주세요.")
             return False
         if not config.GOOGLE_API_KEY:
             return messagebox.askyesno(APP_NAME, "Google API 키가 없으면 AI 문구 없이 뉴스 제목 그대로 올립니다. 계속할까요?")
         return True
+
+    def check_login(self):
+        if not self.save(quiet=True) or not self._ready():
+            return
+
+        def check():
+            try:
+                uploader = poster.get_poster(self.ask_code)
+                name = uploader.whoami()["username"] if hasattr(uploader, "whoami") else config.IG_USERNAME
+                print(f"✔ 인스타 연결 성공: @{name}\n")
+                self.root.after(0, lambda: messagebox.showinfo(APP_NAME, f"연결 성공: @{name}"))
+            except Exception as e:
+                msg = str(e)
+                print(f"❌ 인스타 연결 실패: {msg}\n")
+                self.root.after(0, lambda: messagebox.showerror(APP_NAME, f"연결 실패\n\n{msg}"))
+
+        threading.Thread(target=check, daemon=True).start()
 
     def _auto_loop(self):
         while not self.stop_event.is_set():

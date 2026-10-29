@@ -74,7 +74,7 @@
   <div class="wrap">
     <div class="eyebrow">chedlab · instagram auto</div>
     <h1>Trending news, <span>auto-posted</span></h1>
-    <p class="lead">지금 뜨는 뉴스를 골라 Pubity 스타일 이미지와 릴스로 만들어, 정해진 시간마다 인스타그램에 자동으로 올리는 Windows 앱입니다. 아이디, 비밀번호, Google API 키만 넣으면 됩니다.</p>
+    <p class="lead">지금 뜨는 뉴스를 골라 Pubity 스타일 이미지와 릴스로 만들어, 정해진 시간마다 인스타그램에 자동으로 올리는 Windows 앱입니다. Google API 키와 인스타 토큰만 넣으면 됩니다.</p>
     <div class="cta">
       <a class="download" id="download" href="https://github.com/ElonMakamoto/crypto-trade-ai/releases/download/instagram-auto-latest/InstagramAuto.exe">⬇ Windows용 다운로드</a>
       <span class="meta">Windows 10 / 11 · 설치 없이 바로 실행 · 최신 버전 <b id="version">자동</b></span>
@@ -87,10 +87,27 @@
     <h2>사용 방법</h2>
     <div class="steps">
       <div class="step"><h3>다운로드 후 실행</h3><p><code>InstagramAuto.exe</code>를 실행합니다. "Windows의 PC 보호" 창이 뜨면 <b>추가 정보 → 실행</b>을 누르세요.</p></div>
-      <div class="step"><h3>정보 입력</h3><p>Google API 키(<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">무료 발급</a>), 인스타 아이디/비밀번호, 이미지에 넣을 계정명을 넣고 <b>설정 저장</b>.</p></div>
+      <div class="step"><h3>정보 입력</h3><p>Google API 키(<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">무료 발급</a>), 인스타 액세스 토큰(<a href="#token">받는 법</a>), 이미지에 넣을 계정명을 넣고 <b>설정 저장</b> → <b>인스타 연결 확인</b>.</p></div>
       <div class="step"><h3>미리보기 확인</h3><p><b>미리보기만 만들기</b>로 어떤 게시물과 릴스가 나오는지 먼저 확인합니다. 업로드는 하지 않습니다.</p></div>
       <div class="step"><h3>자동 업로드 시작</h3><p><b>▶ 자동 업로드 시작</b>을 누르면 바로 한 번 올리고, 이후 설정한 간격(기본 5시간)마다 올립니다.</p></div>
     </div>
+  </div>
+</section>
+
+<section id="token">
+  <div class="wrap">
+    <h2>인스타 토큰 받는 법</h2>
+    <p class="lead" style="margin-bottom:24px">공식 API로 올리려면 액세스 토큰이 한 번 필요합니다 (무료, 약 10분). 받은 토큰은 앱이 알아서 연장하므로 다시 받을 필요가 없습니다.</p>
+    <div class="steps">
+      <div class="step"><h3>프로페셔널 계정으로 전환</h3><p>인스타 앱 → 설정 → <b>계정 유형 및 도구</b> → <b>프로페셔널 계정으로 전환</b> (크리에이터 또는 비즈니스, 무료).</p></div>
+      <div class="step"><h3>Meta 앱 만들기</h3><p><a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com</a> → <b>앱 만들기</b> → 사용 사례에서 <b>Instagram에서 메시지 및 콘텐츠 관리</b>를 고르고 만듭니다.</p></div>
+      <div class="step"><h3>계정 연결</h3><p>앱 대시보드 → Instagram → <b>Instagram 로그인을 통한 API 설정</b> → <b>액세스 토큰 생성</b>에서 <b>계정 추가</b> → 인스타로 로그인하고 허용합니다.</p></div>
+      <div class="step"><h3>토큰 붙여넣기</h3><p><b>토큰 생성</b>을 눌러 나온 토큰(<code>IG</code>로 시작)을 복사해 앱의 <b>인스타 액세스 토큰</b>에 붙여넣고 <b>인스타 연결 확인</b>을 누릅니다.</p></div>
+    </div>
+    <ul class="notes" style="margin-top:24px">
+      <li>계정 추가할 때 테스터 초대가 필요하다고 나오면: 앱 대시보드 → <b>앱 역할 → 역할 → Instagram 테스터</b>에 내 계정을 추가하고, 인스타 앱 → 설정 → <b>앱 및 웹사이트 → 테스터 초대</b>에서 수락하세요.</li>
+      <li>공식 API는 사진을 PC에서 바로 올리는 기능이 없어서, Pubity 스타일 게시물 이미지는 <b>6초짜리 정지 화면 릴스</b>로 올라갑니다. 프로필 그리드에는 같은 디자인으로 보입니다.</li>
+    </ul>
   </div>
 </section>
 
@@ -105,7 +122,7 @@
         <tr><td>Pubity 스타일 게시물</td><td>위는 기사 사진, 아래는 검은 패널에 굵은 헤드라인. 핵심 단어는 강조 색상으로 표시하고 계정명을 넣습니다 (1080×1350).</td></tr>
         <tr><td>릴스 자동 제작</td><td>9:16 세로 영상: 사진 줌인 효과와 헤드라인, 단계별 스토리 문장. 음악 폴더를 지정하면 mp3를 랜덤으로 깔아 줍니다.</td></tr>
         <tr><td>자동 업로드</td><td>한 번에 게시물 1개 + 릴스 1개 (또는 하나만). 간격은 직접 정할 수 있고, 이미 올린 기사는 다시 올리지 않습니다.</td></tr>
-        <tr><td>보안 코드 처리</td><td>인스타가 보안 코드나 2단계 인증 코드를 요구하면 앱에서 바로 입력할 수 있습니다.</td></tr>
+        <tr><td>업로드 방식</td><td>공식 Instagram API (추천, 토큰 자동 연장). 아이디/비밀번호 방식도 있지만 인스타가 막을 때가 있습니다.</td></tr>
         <tr><td>Windows 시작 시 실행</td><td>체크하면 PC를 켤 때 앱이 자동으로 켜지고 자동 업로드도 바로 시작합니다.</td></tr>
         <tr><td>안전한 저장</td><td>비밀번호와 API 키는 Windows 암호화로 이 PC의 내 계정에만 저장됩니다.</td></tr>
         <tr><td>자동 업데이트</td><td>새 버전이 나오면 이 페이지의 다운로드가 자동으로 최신이 되고, 앱 안에도 "새 버전 받기" 버튼이 나타납니다.</td></tr>
@@ -119,7 +136,7 @@
     <h2>알아 둘 점</h2>
     <ul class="notes">
       <li><b>PC가 켜져 있어야</b> 자동 업로드가 됩니다. 창은 최소화해 두면 되고, 닫으면 멈춥니다.</li>
-      <li>아이디/비밀번호 방식은 인스타 공식 API가 아니라서, 너무 자주 올리면 인스타가 계정을 제한할 수 있습니다. 간격은 4~6시간을 권장합니다.</li>
+      <li>너무 자주 올리면 도달이 떨어질 수 있습니다. 간격은 4~6시간을 권장합니다. 공식 API는 하루 최대 50개까지 올릴 수 있습니다.</li>
       <li>뉴스 사진과 기사의 저작권은 각 언론사에 있습니다. 캡션에 출처는 자동으로 들어갑니다.</li>
       <li>만든 이미지와 영상은 앱의 <b>결과 폴더</b> 버튼으로 볼 수 있습니다 (<code>%APPDATA%\InstagramAuto</code>).</li>
     </ul>

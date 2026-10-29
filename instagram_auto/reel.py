@@ -64,6 +64,16 @@ def build_reel(photo_path, pick, workdir, out_path):
     return out_path
 
 
+def still_video(image_path, out_path, seconds=6):
+    """A short silent-audio video of one image (for posting a design through the Reels API)."""
+    _run([ffmpeg_exe(), "-y", "-loglevel", "error", "-loop", "1", "-i", str(image_path),
+          "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+          "-t", str(seconds), "-r", str(FPS), "-vf", "scale=1080:-2,format=yuv420p",
+          "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-tune", "stillimage",
+          "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart", str(out_path)])
+    return out_path
+
+
 def extract_cover(video_path, out_path, at=1.0):
     """9:16 cover frame for the reel (also used as the upload thumbnail)."""
     _run([ffmpeg_exe(), "-y", "-loglevel", "error", "-ss", str(at), "-i", str(video_path),

@@ -36,8 +36,8 @@ DEFAULTS = {
     "POST_LANGUAGE": "English",
     "BRAND_HANDLE": "@yourpage",
     "ACCENT_COLOR": "#FFD400",
-    # "instagrapi" = username/password, "graph" = official Graph API (Business/Creator account)
-    "IG_BACKEND": "instagrapi",
+    # "graph" = official Instagram API (Professional account), "instagrapi" = username/password (unofficial)
+    "IG_BACKEND": "graph",
     "IG_USERNAME": "",
     "IG_PASSWORD": "",
     "IG_ACCESS_TOKEN": "",
