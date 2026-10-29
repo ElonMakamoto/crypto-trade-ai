@@ -178,8 +178,13 @@ class GraphPoster:
             print(f"[poster] token refresh failed: {e}")
             return
         if data.get("access_token"):
-            saved.update(IG_ACCESS_TOKEN=data["access_token"], TOKEN_REFRESHED_AT=str(time.time()))
+            saved["TOKEN_REFRESHED_AT"] = str(time.time())
+            channel_token = config.ACTIVE_CHANNEL and config.load_channel(config.ACTIVE_CHANNEL)["CHANNEL_TOKEN"]
+            if not channel_token:
+                saved["IG_ACCESS_TOKEN"] = data["access_token"]
             config.save_settings(saved)
+            if channel_token:  # the channel's own token is the one that was refreshed
+                config.remember("CHANNEL_TOKEN", data["access_token"])
             print("[poster] access token refreshed")
 
     def _wait_until_ready(self, container_id):
