@@ -31,6 +31,8 @@ SECRET_KEYS = {"GOOGLE_API_KEY", "IG_PASSWORD", "IG_ACCESS_TOKEN"}
 DEFAULTS = {
     "GOOGLE_API_KEY": "",
     "GEMINI_MODEL": "gemini-2.5-flash",
+    # "disasters" = natural disaster news only, "trending" = all top stories
+    "NEWS_FOCUS": "disasters",
     "NEWS_COUNTRY": "US",
     "NEWS_LANGUAGE": "en",
     "POST_LANGUAGE": "English",

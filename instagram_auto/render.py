@@ -168,10 +168,13 @@ def question_slide(photo_path, out_path, index, total):
     photo = load_photo(photo_path, (W, H)).filter(ImageFilter.GaussianBlur(12))
     img.paste(Image.eval(photo, lambda v: int(v * 0.35)), (0, 0))
     draw = ImageDraw.Draw(img)
-    draw.text((W // 2, H // 2 - 90), "WHAT DO YOU", font=_font(HEADLINE_FONT, 140), fill=(255, 255, 255), anchor="mm")
-    draw.text((W // 2, H // 2 + 60), "THINK?", font=_font(HEADLINE_FONT, 170), fill=_hex(config.ACCENT_COLOR), anchor="mm")
-    draw.text((W // 2, H // 2 + 220), "TELL US IN THE COMMENTS", font=_font(BRAND_FONT, 42, "ExtraBold"),
-              fill=(255, 255, 255), anchor="mm")
+    if config.NEWS_FOCUS == "disasters":
+        top, big, sub = "PLEASE", "STAY SAFE", "SHARE TO KEEP OTHERS INFORMED"
+    else:
+        top, big, sub = "WHAT DO YOU", "THINK?", "TELL US IN THE COMMENTS"
+    draw.text((W // 2, H // 2 - 90), top, font=_font(HEADLINE_FONT, 140), fill=(255, 255, 255), anchor="mm")
+    draw.text((W // 2, H // 2 + 60), big, font=_font(HEADLINE_FONT, 170), fill=_hex(config.ACCENT_COLOR), anchor="mm")
+    draw.text((W // 2, H // 2 + 220), sub, font=_font(BRAND_FONT, 42, "ExtraBold"), fill=(255, 255, 255), anchor="mm")
     _counter(img, index, total)
     draw_brand(img, (W // 2, H - 45))
     img.save(out_path, "JPEG", quality=92)
@@ -186,7 +189,8 @@ def cta_slide(out_path, index, total):
     accent = _hex(config.ACCENT_COLOR)
     draw.text((W // 2, H // 2 - 170), "FOLLOW", font=_font(HEADLINE_FONT, 150), fill=(255, 255, 255), anchor="mm")
     draw.text((W // 2, H // 2), config.BRAND_HANDLE.upper(), font=_font(HEADLINE_FONT, 110), fill=accent, anchor="mm")
-    draw.text((W // 2, H // 2 + 150), "FOR DAILY NEWS YOU CAN'T MISS", font=_font(BRAND_FONT, 40, "ExtraBold"),
+    subtitle = "FOR LIVE NATURAL DISASTER UPDATES" if config.NEWS_FOCUS == "disasters" else "FOR DAILY NEWS YOU CAN'T MISS"
+    draw.text((W // 2, H // 2 + 150), subtitle, font=_font(BRAND_FONT, 40, "ExtraBold"),
               fill=(255, 255, 255), anchor="mm")
     draw.text((W // 2, H // 2 + 230), "LIKE  ·  SHARE  ·  SAVE", font=_font(BRAND_FONT, 34, "Bold"),
               fill=(170, 170, 170), anchor="mm")
