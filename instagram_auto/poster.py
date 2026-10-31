@@ -65,7 +65,12 @@ class MetaAPIError(RuntimeError):
         self.code = err.get("code")
         message = err.get("message") or response.text
         text = f"Meta API 오류 ({path}) code {self.code}: {message}"
-        if self.code in self.PERMISSION_CODES or (isinstance(self.code, int) and 200 <= self.code <= 299):
+        if "access blocked" in message.lower():
+            # Meta blocks this one Instagram account, not the token (other channels with the same token still work)
+            text += ("\n→ Meta가 이 인스타 계정의 API 사용을 막았습니다. 휴대폰 인스타 앱에서 이 계정으로 로그인해 "
+                     "보안 확인·경고(설정 → 계정 상태)를 처리하고, 프로페셔널 계정인지와 Facebook 페이지 연결을 확인하세요. "
+                     "Meta 앱이 개발 모드면 이 계정을 앱 역할(테스터)에 추가하고 수락해야 합니다.")
+        elif self.code in self.PERMISSION_CODES or (isinstance(self.code, int) and 200 <= self.code <= 299):
             text += "\n→ Meta 앱에서 instagram_content_publish 권한과 Instagram Tester 수락을 확인하세요."
         super().__init__(mask(text))
 
