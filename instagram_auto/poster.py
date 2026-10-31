@@ -94,7 +94,21 @@ class GraphPoster:
             self.api = f"https://graph.facebook.com/{config.FB_GRAPH_VERSION}"
         print(f"[poster] token {token[:4]}… -> {self.api.split('/')[2]}")
         self._refresh_token()
-        self.user_id = config.IG_USER_ID or self.whoami()["user_id"]
+        if self.instagram_login:
+            self.user_id = self._own_account()
+        else:
+            self.user_id = config.IG_USER_ID or self.whoami()["user_id"]
+
+    def _own_account(self):
+        """An Instagram-login token can only post to the account it was made for (any other ID: 'API access blocked')."""
+        me = self._get("me", fields="id,user_id,username")
+        if config.IG_USER_ID and config.IG_USER_ID not in (str(me.get("user_id")), str(me.get("id"))):
+            raise RuntimeError(
+                f"이 IG 토큰은 @{me.get('username', '?')} (ID {me.get('user_id')}) 계정 전용이라 "
+                f"설정한 계정 ID {config.IG_USER_ID} 에는 올릴 수 없습니다.\n"
+                f"→ 설정 → 이 채널 탭의 '이 채널 전용 Meta 토큰' 칸에 그 계정으로 로그인해서 받은 토큰을 넣거나, "
+                f"모든 계정에 쓸 수 있는 EAA 토큰(시스템 사용자 토큰)을 공통 토큰으로 쓰세요.")
+        return str(me.get("user_id") or me.get("id"))
 
     def _request(self, method, path, timeout=60, **kwargs):
         url = path if path.startswith("https://") else f"{self.api}/{path}"
@@ -168,10 +182,13 @@ class GraphPoster:
         if not self.instagram_login:
             return
         saved = config.load_settings()
-        refreshed_at = float(saved.get("TOKEN_REFRESHED_AT") or 0)
+        channel_token = config.ACTIVE_CHANNEL and config.load_channel(config.ACTIVE_CHANNEL, saved)["CHANNEL_TOKEN"]
+        # a channel's own token keeps its own refresh clock
+        clock = f"TOKEN_REFRESHED_AT_{config.ACTIVE_CHANNEL}" if channel_token else "TOKEN_REFRESHED_AT"
+        refreshed_at = float(saved.get(clock) or 0)
         if not refreshed_at:
             # first use of this token: start its refresh clock
-            saved["TOKEN_REFRESHED_AT"] = str(time.time())
+            saved[clock] = str(time.time())
             config.save_settings(saved)
             return
         if time.time() - refreshed_at < 7 * 86400:
@@ -183,8 +200,7 @@ class GraphPoster:
             print(f"[poster] token refresh failed: {e}")
             return
         if data.get("access_token"):
-            saved["TOKEN_REFRESHED_AT"] = str(time.time())
-            channel_token = config.ACTIVE_CHANNEL and config.load_channel(config.ACTIVE_CHANNEL)["CHANNEL_TOKEN"]
+            saved[clock] = str(time.time())
             if not channel_token:
                 saved["IG_ACCESS_TOKEN"] = data["access_token"]
             config.save_settings(saved)
