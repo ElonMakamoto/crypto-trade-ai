@@ -8,6 +8,10 @@ import config
 import render
 
 FPS = 30
+# Instagram's Reels spec: H.264 4:2:0, closed GOP, keyframe every 2 s; AAC at most 48 kHz and 128 kbps
+IG_VIDEO = ["-c:v", "libx264", "-preset", "slow", "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p",
+            "-r", str(FPS), "-g", str(FPS * 2)]
+IG_AUDIO = ["-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k"]
 
 
 def ffmpeg_exe():
@@ -62,10 +66,19 @@ def slideshow(slides, out_path, workdir, voices=None):
         ffmpeg_exe(), "-y", "-loglevel", "error", *inputs,
         "-filter_complex", ";".join(chain),
         "-map", "[vout]", "-map", "[aout]", "-t", str(total),
-        "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-tune", "stillimage", "-profile:v", "high",
-        "-r", str(FPS), "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out_path),
+        *IG_VIDEO, "-crf", "17", "-tune", "stillimage", *IG_AUDIO, "-movflags", "+faststart", str(out_path),
     ])
     return out_path
+
+
+def instagram_safe(video_path):
+    """A plainer re-encode for when Meta can't process a reel: main profile, steady bitrate, standard audio."""
+    out = video_path.with_name(video_path.stem + "-safe.mp4")
+    _run([ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(video_path),
+          "-c:v", "libx264", "-preset", "medium", "-profile:v", "main", "-level", "4.0", "-pix_fmt", "yuv420p",
+          "-r", str(FPS), "-g", str(FPS * 2), "-b:v", "5M", "-maxrate", "6M", "-bufsize", "10M",
+          *IG_AUDIO, "-movflags", "+faststart", str(out)])
+    return out
 
 
 def still_video(image_path, out_path, seconds=6):

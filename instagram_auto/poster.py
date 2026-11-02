@@ -247,7 +247,18 @@ class GraphPoster:
         return self.post_reel(reel.still_video(path, path.with_suffix(".mp4")), caption)
 
     def post_reel(self, path, caption, cover=None):
-        return self._publish(self._video_container(path, media_type="REELS", caption=caption, share_to_feed="true"))
+        fields = dict(media_type="REELS", caption=caption, share_to_feed="true")
+        try:
+            container = self._video_container(path, **fields)
+        except MetaAPIError as e:
+            if "ProcessingFailed" not in str(e):
+                raise
+            # Meta rejected the file itself: once more with a plainer encode of the same video
+            import reel
+
+            print("[poster] Meta could not process the video — re-encoding it in a basic format and retrying")
+            container = self._video_container(reel.instagram_safe(path), **fields)
+        return self._publish(container)
 
     def post_album(self, paths, caption):
         """A carousel of the slide images (or a single post for one image)."""
