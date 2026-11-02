@@ -4,9 +4,10 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlsplit, urlunsplit
 
 import requests
+from PIL import Image
 
 import config
 
@@ -198,7 +199,7 @@ def _wikimedia_search(query, limit):
             params={
                 "action": "query", "format": "json", "generator": "search",
                 "gsrsearch": f"filetype:bitmap {query}", "gsrnamespace": 6, "gsrlimit": limit + 3,
-                "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 1600,
+                "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 2400,
             },
             headers=WIKI_UA, timeout=20,
         )
@@ -218,7 +219,7 @@ def wikipedia_images(query, limit=3):
         r = requests.get(
             f"https://{config.NEWS_LANGUAGE or 'en'}.wikipedia.org/w/api.php",
             params={"action": "query", "format": "json", "generator": "search", "gsrsearch": query,
-                    "gsrlimit": limit, "prop": "pageimages", "piprop": "thumbnail", "pithumbsize": 1600},
+                    "gsrlimit": limit, "prop": "pageimages", "piprop": "thumbnail", "pithumbsize": 2400},
             headers=WIKI_UA, timeout=20,
         )
         pages = sorted(r.json().get("query", {}).get("pages", {}).values(), key=lambda p: p.get("index", 99))
@@ -268,10 +269,48 @@ def find_image_url(story, keywords=""):
     return _og_image(resolve_google_news(story["link"])) or next(iter(wikimedia_images(keywords or story["title"], 1)), None)
 
 
-def download_image(url, dest):
+SIZE_PARAMS = {"w", "width", "h", "height", "resize", "fit", "size", "quality", "q"}
+
+
+def larger_versions(url):
+    """Likely full-size versions of a news photo URL (resized copies are common), best guess first."""
+    out = []
+    # WordPress-style thumbnails: photo-1024x576.jpg -> photo.jpg
+    stripped = re.sub(r"-\d{2,4}x\d{2,4}(?=\.(?:jpe?g|png|webp)(?:$|\?))", "", url, flags=re.I)
+    if stripped != url:
+        out.append(stripped)
+    parts = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)]
+    if any(k.lower() in SIZE_PARAMS for k, _ in query):
+        bigger = [(k, "2048" if k.lower() in ("w", "width") else v) for k, v in query
+                  if k.lower() not in SIZE_PARAMS - {"w", "width"}]
+        out.append(urlunsplit(parts._replace(query=urlencode(bigger))))
+    return [u for u in out if u != url]
+
+
+def _fetch(url, dest):
     r = requests.get(url, headers=WIKI_UA if "wikimedia.org" in url else UA, timeout=30)
     r.raise_for_status()
     dest.write_bytes(r.content)
+    with Image.open(dest) as img:
+        return img.width * img.height
+
+
+def download_image(url, dest):
+    """Download a photo, taking a higher-resolution version of it when the site has one."""
+    best = _fetch(url, dest)
+    for bigger in larger_versions(url):
+        tmp = dest.with_name(dest.name + ".big")
+        try:
+            pixels = _fetch(bigger, tmp)
+        except Exception:  # no such version, or not an image
+            tmp.unlink(missing_ok=True)
+            continue
+        if pixels > best:
+            tmp.replace(dest)
+            best = pixels
+        else:
+            tmp.unlink(missing_ok=True)
     return dest
 
 

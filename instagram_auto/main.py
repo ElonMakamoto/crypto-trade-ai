@@ -19,6 +19,7 @@ import reel
 import render
 
 MAX_FACT_SLIDES = 4  # cover + up to 4 fact slides + follow slide = 3-6 images
+MIN_PHOTO_WIDTH = 800  # narrower photos look soft on a 1080 px slide
 HASHTAGS = 5
 
 
@@ -67,21 +68,24 @@ def find_cover(story, ctx, query, workdir, tag):
     Channels start from different candidates (English the best, Korean the 2nd, Japanese the 3rd) so the
     same story doesn't get identical posts; if fewer exist, the last one found is used.
     """
-    prefer, found, tried = config.CHANNEL_INDEX, [], set()
+    prefer, found, small, tried = config.CHANNEL_INDEX, [], [], set()
     for url in news.cover_candidates(story, ctx, query):
         if url in tried:
             continue
         tried.add(url)
-        dest = workdir / f"{tag}_cover{len(found)}.img"
+        dest = workdir / f"{tag}_cover{len(found) + len(small)}.img"
         try:
             news.download_image(url, dest)
-            render.load_photo(dest, (64, 64))  # validate it opens
-            found.append((dest, url))
-            if len(found) > prefer:
-                break
+            width = render.photo_width(dest)  # also checks it opens
         except Exception as e:  # bad download or unreadable image
             print(f"[main] cover photo skipped ({e})")
-    return found[-1] if found else (None, None)
+            continue
+        # low-resolution photos only if nothing sharper turns up
+        (found if width >= MIN_PHOTO_WIDTH else small).append((dest, url))
+        if len(found) > prefer:
+            break
+    found = found or small
+    return found[min(prefer, len(found) - 1)] if found else (None, None)
 
 
 def gather_photos(story, ctx, queries, needed, workdir, tag, cover=None, cover_url=None):

@@ -136,7 +136,23 @@ def draw_brand(img, xy, anchor="mm", size=34):
 def load_photo(path, size):
     photo = Image.open(path)
     photo = ImageOps.exif_transpose(photo).convert("RGB")
-    return ImageOps.fit(photo, size, Image.LANCZOS, centering=(0.5, 0.35))
+    fitted = ImageOps.fit(photo, size, Image.LANCZOS, centering=(0.5, 0.35))
+    if min(photo.width / size[0], photo.height / size[1]) < 1:
+        # a small photo blown up: sharpen it back a little
+        fitted = fitted.filter(ImageFilter.UnsharpMask(radius=2, percent=60, threshold=2))
+    return fitted
+
+
+def photo_width(path):
+    """Width in pixels of a photo (as it is shown, after EXIF rotation); raises if it isn't a readable image."""
+    with Image.open(path) as photo:
+        return ImageOps.exif_transpose(photo).width
+
+
+def save_jpeg(img, out_path):
+    """Highest-quality JPEG (no colour subsampling, so text edges stay crisp)."""
+    img.save(out_path, "JPEG", quality=97, subsampling=0, optimize=True)
+    return out_path
 
 
 def text_card_background(label, out_path, size=(1600, 1200)):
@@ -154,8 +170,7 @@ def text_card_background(label, out_path, size=(1600, 1200)):
         font = _font(config.FONTS_DIR / "Anton-Regular.ttf", 150)
         draw.text((W // 2, H // 2), label.upper()[:24], font=font, fill=tuple(min(255, int(c * 0.55)) for c in accent),
                   anchor="mm")
-    img.save(out_path, "JPEG", quality=92)
-    return out_path
+    return save_jpeg(img, out_path)
 
 
 def feed_post(photo_path, headline, highlight, out_path, swipe=False):
@@ -171,8 +186,7 @@ def feed_post(photo_path, headline, highlight, out_path, swipe=False):
     if swipe:
         ImageDraw.Draw(img).text((W - 40, H - 45), l10n.t("swipe"), font=_bfont(28),
                                  fill=_hex(config.ACCENT_COLOR), anchor="rm")
-    img.save(out_path, "JPEG", quality=92)
-    return out_path
+    return save_jpeg(img, out_path)
 
 
 def _counter(img, index, total):
@@ -205,8 +219,7 @@ def fact_slide(photo_path, text, highlight, index, total, out_path):
     _draw_lines(draw, lines, font, SIDE, W - SIDE, y, line_h, _hot(text, highlight))
     _counter(img, index, total)
     draw_brand(img, (W // 2, H - 45))
-    img.save(out_path, "JPEG", quality=92)
-    return out_path
+    return save_jpeg(img, out_path)
 
 
 def question_slide(photo_path, out_path, index, total):
@@ -225,8 +238,7 @@ def question_slide(photo_path, out_path, index, total):
               anchor="mm")
     _counter(img, index, total)
     draw_brand(img, (W // 2, H - 45))
-    img.save(out_path, "JPEG", quality=92)
-    return out_path
+    return save_jpeg(img, out_path)
 
 
 def cta_slide(out_path, index, total):
@@ -246,19 +258,16 @@ def cta_slide(out_path, index, total):
               fill=(255, 255, 255), anchor="mm")
     draw.text((W // 2, H // 2 + 230), actions, font=_bfont(34, "Bold"), fill=(170, 170, 170), anchor="mm")
     _counter(img, index, total)
-    img.save(out_path, "JPEG", quality=92)
-    return out_path
+    return save_jpeg(img, out_path)
 
 
-def reel_frame(slide_path, out_path, size=(1080, 1920), scale=0.86):
-    """A 4:5 post slide on a 9:16 frame: the slide, a little smaller so its text clears the reel's edges and
-    buttons, in the middle over a dark, blurred copy of itself."""
+def reel_frame(slide_path, out_path, size=(1080, 1920)):
+    """A 4:5 post slide on a 9:16 frame: the slide at full width in the middle over a dark, blurred copy of itself."""
     W, H = size
     slide = Image.open(slide_path).convert("RGB")
     bg = load_photo(slide_path, (W, H)).filter(ImageFilter.GaussianBlur(40))
     bg = Image.eval(bg, lambda v: int(v * 0.4))
-    w = round(W * scale)
-    slide = slide.resize((w, round(slide.height * w / slide.width)), Image.LANCZOS)
-    bg.paste(slide, ((W - w) // 2, (H - slide.height) // 2))
-    bg.save(out_path, "JPEG", quality=92)
-    return out_path
+    if slide.width != W:
+        slide = slide.resize((W, round(slide.height * W / slide.width)), Image.LANCZOS)
+    bg.paste(slide, (0, (H - slide.height) // 2))
+    return save_jpeg(bg, out_path)
