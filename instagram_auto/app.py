@@ -33,7 +33,7 @@ UPDATE_CHECK_MS = 3 * 3600 * 1000  # also check for a new version every 3 hours
 TOKEN_HELP_URL = "https://chedlab.org/instagram/#token"
 
 MODES = {"alternate": "하나씩 번갈아 (릴스 → 게시물)", "reel": "릴스만", "post": "게시물만 (3~6장 슬라이드)"}
-FOCUSES = {"disasters": "자연재해 뉴스만", "trending": "전체 인기 뉴스"}
+FOCUSES = {"world": "세계 주요 뉴스 (자연재해 포함)", "disasters": "자연재해 뉴스만", "trending": "전체 인기 뉴스 (연예·스포츠 포함)"}
 COMMON_FIELDS = [
     # key, label, kind
     ("GOOGLE_API_KEY", "Google API 키", "secret"),

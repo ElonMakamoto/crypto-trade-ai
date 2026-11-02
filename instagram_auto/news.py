@@ -96,14 +96,31 @@ def _fetch_feeds(feeds, limit, keep=lambda s: True):
     return stories[:limit]
 
 
-def fetch_trending(limit=40):
-    """Stories for the configured focus: natural disasters (default) or all top stories."""
-    if config.NEWS_FOCUS == "disasters":
-        def is_disaster(story):
-            return bool(DISASTER_WORDS.search(story["title"])) and not NOT_DISASTER.search(story["title"])
+# the big stories the whole world is talking about
+WORLD_TOPICS = ["WORLD", "BUSINESS", "SCIENCE", "TECHNOLOGY"]
 
-        stories = _fetch_feeds([(t, _search_url(q)) for t, q in DISASTER_SEARCHES.items()], limit, is_disaster)
+
+def _is_disaster(story):
+    return bool(DISASTER_WORDS.search(story["title"])) and not NOT_DISASTER.search(story["title"])
+
+
+def _disasters(limit):
+    return _fetch_feeds([(t, _search_url(q)) for t, q in DISASTER_SEARCHES.items()], limit, _is_disaster)
+
+
+def fetch_trending(limit=40):
+    """Stories for the configured focus: major world news with natural disasters (default), natural
+    disasters only, or all top stories (incl. entertainment and sports)."""
+    if config.NEWS_FOCUS == "disasters":
+        stories = _disasters(limit)
         print(f"[news] {len(stories)} natural disaster stories")
+        return stories
+    if config.NEWS_FOCUS == "world":
+        stories = _fetch_feeds([("TOP", _rss_url())] + [(t, _rss_url(t)) for t in WORLD_TOPICS], limit)
+        seen = {s["key"] for s in stories}
+        stories += [s for s in _disasters(limit // 3) if s["key"] not in seen]
+        stories.sort(key=lambda s: s["published"], reverse=True)
+        print(f"[news] {len(stories)} world news stories")
         return stories
     return _fetch_feeds([("TOP", _rss_url())] + [(t, _rss_url(t)) for t in TOPICS], limit)
 
@@ -260,7 +277,7 @@ def cover_candidates(story, ctx, query):
         yield from wikipedia_images(name, 2)
     yield from related_images(story)
     yield from wikimedia_images(query or story["title"], 3)
-    if config.NEWS_FOCUS == "disasters" and story.get("topic") in DISASTER_SEARCHES:
+    if story.get("topic") in DISASTER_SEARCHES:
         # last resort: a real photo of this kind of disaster
         yield from wikimedia_images(f"{story['topic'].lower()} damage", 3)
 
