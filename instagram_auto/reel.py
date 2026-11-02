@@ -21,14 +21,12 @@ def ffmpeg_exe():
 
 
 def slideshow(slides, out_path, workdir):
-    """slides: [(post image, seconds)] -> 9:16 reel showing each post slide in turn, with a slow zoom and music."""
+    """slides: [(post image, seconds)] -> 9:16 reel showing each post slide in turn (still, no motion), with music."""
     inputs, chain = [], []
     for i, (image, seconds) in enumerate(slides):
         frame = render.reel_frame(image, workdir / f"reel_frame{i}.jpg")
-        inputs += ["-i", str(frame)]
-        frames = round(seconds * FPS)
-        chain.append(f"[{i}:v]scale=1188:2112,zoompan=z='min(zoom+0.0003,1.03)':d={frames}"
-                     f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={FPS},setsar=1[s{i}]")
+        inputs += ["-loop", "1", "-framerate", str(FPS), "-t", str(seconds), "-i", str(frame)]
+        chain.append(f"[{i}:v]setsar=1[s{i}]")
     cuts = "".join(f"[s{i}]" for i in range(len(slides)))
     chain.append(f"{cuts}concat=n={len(slides)}:v=1:a=0,format=yuv420p[vout]")
     total = sum(seconds for _, seconds in slides)
@@ -44,8 +42,8 @@ def slideshow(slides, out_path, workdir):
         ffmpeg_exe(), "-y", "-loglevel", "error", *inputs,
         "-filter_complex", ";".join(chain + [afilter]),
         "-map", "[vout]", "-map", "[aout]", "-t", str(total),
-        "-c:v", "libx264", "-preset", "medium", "-crf", "21", "-r", str(FPS),
-        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out_path),
+        "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-tune", "stillimage", "-profile:v", "high",
+        "-r", str(FPS), "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out_path),
     ])
     return out_path
 
