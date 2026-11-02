@@ -1,4 +1,4 @@
-"""Build a 9:16 Reel: slow zoom on the photo, headline + story lines, optional music."""
+"""Build a 9:16 Reel from the post slides (one cut per slide), optional music."""
 import random
 import shutil
 import subprocess
@@ -20,40 +20,32 @@ def ffmpeg_exe():
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def build_reel(photos, pick, workdir, out_path):
-    """photos: one path or a list; each story line gets the next photo with its own slow zoom."""
-    photos = photos if isinstance(photos, list) else [photos]
-    seconds = config.REEL_SECONDS
-    lines = [l for l in (pick.get("reel_lines") or []) if l][:3] or [""]
-    seg_frames = seconds * FPS // len(lines)
-
+def slideshow(slides, out_path, workdir):
+    """slides: [(post image, seconds)] -> 9:16 reel showing each post slide in turn, with a slow zoom and music."""
     inputs, chain = [], []
-    for i, line in enumerate(lines):
-        bg = render.reel_background(photos[i % len(photos)], workdir / f"reel_bg{i}.jpg")
-        ov = render.reel_overlay(pick["headline"], pick.get("highlight"), line, workdir / f"reel_ov{i}.png")
-        inputs += ["-i", str(bg), "-loop", "1", "-i", str(ov)]
-        # Ken Burns zoom on this segment's photo, with its story line on top
-        chain.append(f"[{2 * i}:v]scale=1296:2304,zoompan=z='min(zoom+0.0009,1.2)':d={seg_frames}"
-                     f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={FPS},setsar=1[b{i}]")
-        chain.append(f"[b{i}][{2 * i + 1}:v]overlay=0:0:shortest=1[s{i}]")
-    chain.append("".join(f"[s{i}]" for i in range(len(lines))) + f"concat=n={len(lines)}:v=1:a=0,format=yuv420p[vout]")
+    for i, (image, seconds) in enumerate(slides):
+        frame = render.reel_frame(image, workdir / f"reel_frame{i}.jpg")
+        inputs += ["-i", str(frame)]
+        frames = round(seconds * FPS)
+        chain.append(f"[{i}:v]scale=1188:2112,zoompan=z='min(zoom+0.0006,1.06)':d={frames}"
+                     f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={FPS},setsar=1[s{i}]")
+    chain.append("".join(f"[s{i}]" for i in range(len(slides))) + f"concat=n={len(slides)}:v=1:a=0,format=yuv420p[vout]")
+    total = sum(seconds for _, seconds in slides)
 
     music = sorted(config.MUSIC_DIR.glob("*.mp3")) if config.MUSIC_DIR.exists() else []
     if music:
         inputs += ["-stream_loop", "-1", "-i", str(random.choice(music))]
     else:
         inputs += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
-    audio_idx = 2 * len(lines)
-    afilter = f"[{audio_idx}:a]afade=t=out:st={seconds - 1}:d=1,volume=0.6[aout]"
+    afilter = f"[{len(slides)}:a]afade=t=out:st={total - 1}:d=1,volume=0.6[aout]"
 
-    cmd = [
+    _run([
         ffmpeg_exe(), "-y", "-loglevel", "error", *inputs,
         "-filter_complex", ";".join(chain + [afilter]),
-        "-map", "[vout]", "-map", "[aout]", "-t", str(seconds),
+        "-map", "[vout]", "-map", "[aout]", "-t", str(total),
         "-c:v", "libx264", "-preset", "medium", "-crf", "21", "-r", str(FPS),
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out_path),
-    ]
-    _run(cmd)
+    ])
     return out_path
 
 

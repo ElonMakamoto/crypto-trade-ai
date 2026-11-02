@@ -240,31 +240,13 @@ def cta_slide(out_path, index, total):
     return out_path
 
 
-def reel_background(photo_path, out_path, size=(1296, 2304)):
-    """Blurred full-bleed backdrop with the sharp photo in the middle (oversized for the zoom)."""
+def reel_frame(slide_path, out_path, size=(1080, 1920)):
+    """A 4:5 post slide on a 9:16 frame: the slide in the middle over a dark, blurred copy of itself."""
     W, H = size
-    bg = load_photo(photo_path, (W, H)).filter(ImageFilter.GaussianBlur(40))
-    bg = Image.eval(bg, lambda v: int(v * 0.45))
-    fg = load_photo(photo_path, (W, int(W * 0.9)))
-    bg.paste(fg, (0, int(H * 0.30)))
+    slide = Image.open(slide_path).convert("RGB")
+    bg = load_photo(slide_path, (W, H)).filter(ImageFilter.GaussianBlur(40))
+    bg = Image.eval(bg, lambda v: int(v * 0.4))
+    slide = slide.resize((W, round(slide.height * W / slide.width)))
+    bg.paste(slide, (0, (H - slide.height) // 2))
     bg.save(out_path, "JPEG", quality=92)
-    return out_path
-
-
-def reel_overlay(headline, highlight, sub_line, out_path, size=(1080, 1920)):
-    """Transparent PNG with headline (top), story line (bottom) and handle."""
-    W, H = size
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    shade = Image.new("RGBA", (W, 620), (0, 0, 0, 200))
-    img.alpha_composite(shade, (0, 0))
-    draw_headline(img, (60, 170, W - 60, 600), headline, highlight)
-    if sub_line:
-        band = Image.new("RGBA", (W, 300), (0, 0, 0, 170))
-        img.alpha_composite(band, (0, H - 520))
-        draw = ImageDraw.Draw(img)
-        font = _bfont(50)
-        lines = _wrap(draw, _tokens(sub_line), font, W - 140)[:3]
-        _draw_lines(draw, lines, font, 70, W - 70, H - 520 + (300 - 66 * len(lines)) // 2, 66)
-    draw_brand(img, (W // 2, H - 150), size=40)
-    img.save(out_path, "PNG")
     return out_path
