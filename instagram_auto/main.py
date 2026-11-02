@@ -152,8 +152,9 @@ def reel_timing(images):
     return [(image, 3 if i == 0 else 4) for i, image in enumerate(images)]
 
 
-def run_once(dry_run=False, poster=None, only=None):
-    """One round: returns the list of media files made. only="reel"/"post" forces that kind."""
+def run_once(dry_run=False, poster=None, only=None, story=None):
+    """One round: returns the list of media files made. only="reel"/"post" forces that kind; story (a news item
+    picked in the app's trending list) makes the post about that story instead of choosing one."""
     state = load_state()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     workdir = config.OUTPUT_DIR / stamp
@@ -166,12 +167,16 @@ def run_once(dry_run=False, poster=None, only=None):
         kinds = ["post" if state.get("last_kind") == "reel" else "reel"]
     else:
         kinds = {"both": ["post", "reel"], "post": ["post"], "reel": ["reel"]}[config.POST_MODE]
-    stories = news.fetch_trending()
+    if story:
+        stories, skip = [dict(story)], set()
+        print(f"[main] chosen story: {story['title']}")
+    else:
+        stories, skip = news.fetch_trending(), set(state["posted"])
     if not stories:
         print("[main] no news fetched — skipping this round")
         return []
     # a few spare stories, so one without a related photo for the front can be skipped
-    picks = ai.pick_and_write(stories, len(kinds) + 3, set(state["posted"]))
+    picks = ai.pick_and_write(stories, len(kinds) + 3, skip)
     if not picks:
         print("[main] no new stories this round")
         return []
@@ -202,7 +207,11 @@ def run_once(dry_run=False, poster=None, only=None):
         cover_img = media[0]
         if kind == "reel":
             lines = narration(pick, details)
-            voices = voice.narrate(lines, workdir) if len(lines) == len(media) else None
+            if len(lines) == len(media) and config.VOICE == "on":
+                lines = ai.write_script(lines) or lines  # a spoken script, not the slide text read out
+                voices = voice.narrate(lines, workdir)
+            else:
+                voices = None
             media = [reel.slideshow(reel_timing(media), workdir / f"reel-{stamp}.mp4", workdir, voices)]
             cover_img = reel.extract_cover(media[0], workdir / f"reel-{stamp}.jpg")
         print(f"[main] {kind} ({len(media)} file{'s' if len(media) > 1 else ''}): {pick['headline']}")

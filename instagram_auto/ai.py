@@ -234,6 +234,34 @@ def write_details(pick, story, article_text, n_slides=4):
     return _fallback_details(pick, story, article_text, n_slides)
 
 
+SCRIPT_PROMPT = """You are the voice of a viral Instagram news reel: a warm, friendly young woman talking to her
+followers like a friend. Write what she SAYS over each slide below: a natural spoken script in {lang}, not the slide
+text read out. Conversational and lively (e.g. "So, here's what happened..."), short sentences that sound good out
+loud, only facts that are on the slides. The first line is a hook, the last line invites people to follow for more
+(no @handle). At most 25 words per line ({lang} script: about the same speaking length).
+
+Slides (one line each, same order):
+{slides}
+
+Respond with JSON only: {{"lines": ["...", ...]}} with exactly {n} lines."""
+
+
+def write_script(slide_texts):
+    """What the voice says over each reel slide (spoken style), or None to read the slide text instead."""
+    if not config.GOOGLE_API_KEY:
+        return None
+    try:
+        data = _gemini(SCRIPT_PROMPT.format(lang=config.POST_LANGUAGE, n=len(slide_texts),
+                                            slides="\n".join(f"{i + 1}. {t}" for i, t in enumerate(slide_texts))))
+        lines = [str(line).strip() for line in data.get("lines", [])]
+        if len(lines) == len(slide_texts) and all(lines):
+            return lines
+        print(f"[ai] voice script had {len(lines)} lines for {len(slide_texts)} slides — reading the slides instead")
+    except (requests.RequestException, KeyError, ValueError, AttributeError) as e:
+        print(f"[ai] voice script failed ({e}) — reading the slides instead")
+    return None
+
+
 SCRIPTS = {"Korean": re.compile(r"[\uac00-\ud7a3]"), "Japanese": re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")}
 
 TRANSLATE_PROMPT = """Translate each item into natural {lang} for an Instagram news page about the same story.
