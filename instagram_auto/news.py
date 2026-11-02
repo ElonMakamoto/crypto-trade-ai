@@ -125,6 +125,26 @@ def fetch_trending(limit=40):
     return _fetch_feeds([("TOP", _rss_url())] + [(t, _rss_url(t)) for t in TOPICS], limit)
 
 
+def top_world(n=10):
+    """The n biggest world stories right now, in Google News' own order (most important first)."""
+    feeds, seen = [], set()
+    for topic in ("TOP", "WORLD"):
+        try:
+            r = requests.get(_rss_url(topic if topic != "TOP" else None), headers=UA, timeout=20)
+            r.raise_for_status()
+            feeds.append([dict(s, topic=topic) for s in _parse(r.text)])
+        except requests.RequestException as e:
+            print(f"[news] {topic} failed: {e}")
+    stories = []
+    for pair in zip(*feeds) if len(feeds) == 2 else ([s] for s in (feeds[0] if feeds else [])):
+        for s in pair:  # alternate the two lists so both top news and world news show up
+            key = re.sub(r"\W+", "", s["title"].lower())[:60]
+            if key and key not in seen:
+                seen.add(key)
+                stories.append(dict(s, key=key))
+    return stories[:n]
+
+
 def resolve_google_news(url):
     """news.google.com/rss/articles/<id> only redirects with JavaScript: ask Google for the publisher URL."""
     m = re.search(r"news\.google\.com/(?:rss/)?articles/([^?/]+)", url)

@@ -24,6 +24,7 @@ from PIL import Image, ImageTk
 
 import config
 import main as bot
+import news
 import poster
 import timeslots
 
@@ -325,12 +326,12 @@ class ChannelPanel:
         self.app.root.after(0, lambda: self.update_status(text))
 
     # ----- running
-    def run_now(self, dry_run=False, only=None):
+    def run_now(self, dry_run=False, only=None, story=None):
         if not dry_run and not self.app.ready(self.cid):
             return
-        threading.Thread(target=self.round, args=(dry_run, only), daemon=True).start()
+        threading.Thread(target=self.round, args=(dry_run, only, story), daemon=True).start()
 
-    def round(self, dry_run=False, only=None):
+    def round(self, dry_run=False, only=None, story=None):
         _local.channel = self.cid
         what = {"reel": "릴스", "post": "게시물"}.get(only, "")
         self.working = True
@@ -342,7 +343,7 @@ class ChannelPanel:
                 print(f"\n=== {datetime.now():%Y-%m-%d %H:%M} {'미리보기' if dry_run else '업로드'} 시작 ===\n")
                 config.use_channel(self.cid)
                 uploader = None if dry_run else poster.get_poster(self.app.ask_code)
-                made = bot.run_once(dry_run=dry_run, poster=uploader, only=only)
+                made = bot.run_once(dry_run=dry_run, poster=uploader, only=only, story=story)
                 # slide images as they are, videos by their cover frame
                 images = [m if m.suffix == ".jpg" else m.with_suffix(".jpg") for m in made]
                 images = [m for m in images if m.exists()]
@@ -425,6 +426,90 @@ class ChannelPanel:
 
 
 # ---------------------------------------------------------------- main window
+class TrendingPanel:
+    """The 10 biggest world stories right now (in English); click one to make a preview, reel or post about it
+    on every enabled channel."""
+
+    REFRESH_MS = 30 * 60 * 1000
+
+    def __init__(self, app, parent):
+        self.app, self.stories, self.next_refresh = app, [], None
+        frame = self.frame = ttk.Frame(parent, padding=(10, 6), relief="groove")
+        frame.columnconfigure(0, weight=1)
+        head = ttk.Frame(frame)
+        head.grid(row=0, column=0, columnspan=3, sticky="ew")
+        ttk.Label(head, text="🔥 지금 뜨는 세계 뉴스 TOP 10", style="Channel.TLabel").pack(side="left")
+        ttk.Label(head, text="  클릭하면 그 뉴스로 만들어요 (켜진 채널 모두)", foreground="#666").pack(side="left")
+        self.updated = tk.StringVar()
+        ttk.Button(head, text="🔄 새로고침", command=self.refresh).pack(side="right")
+        ttk.Label(head, textvariable=self.updated, foreground="#666").pack(side="right", padx=8)
+        self.listbox = tk.Listbox(frame, height=5, activestyle="none", exportselection=False,
+                                  font=("Segoe UI" if sys.platform == "win32" else "TkDefaultFont", 10))
+        self.listbox.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        bar = ttk.Scrollbar(frame, orient="vertical", command=self.listbox.yview)
+        bar.grid(row=1, column=1, sticky="ns", pady=(6, 0))
+        self.listbox.configure(yscrollcommand=bar.set)
+        actions = ttk.Frame(frame)
+        actions.grid(row=1, column=2, sticky="n", padx=(10, 0), pady=(6, 0))
+        self.menu = tk.Menu(self.app.root, tearoff=False)
+        for text, kw in [("👁 미리보기 만들기", {"dry_run": True}), ("🎬 릴스로 올리기", {"only": "reel"}),
+                         ("🖼 게시물로 올리기", {"only": "post"})]:
+            ttk.Button(actions, text=text, width=16, command=lambda kw=kw: self.make(**kw)).pack(pady=(0, 3))
+            self.menu.add_command(label=text, command=lambda kw=kw: self.make(**kw))
+        self.menu.add_separator()
+        self.menu.add_command(label="취소")
+        self.listbox.bind("<ButtonRelease-1>", self.open_menu)
+        self.refresh()
+
+    def refresh(self):
+        self.updated.set("불러오는 중...")
+        threading.Thread(target=self._load, daemon=True).start()
+
+    def _load(self):
+        try:
+            stories = news.top_world(10)
+        except Exception as e:  # network trouble: keep the old list
+            print(f"[news] trending list failed: {e}")
+            stories = None
+        self.app.root.after(0, self._show, stories)
+
+    def _show(self, stories):
+        if stories is not None:
+            self.stories = stories
+            self.listbox.delete(0, "end")
+            for i, s in enumerate(stories, 1):
+                self.listbox.insert("end", f"{i:>2}. {s['title']}" + (f"  — {s['source']}" if s.get("source") else ""))
+        self.updated.set(f"{datetime.now():%H:%M} 기준" if self.stories else "불러오지 못했어요 · 🔄 새로고침")
+        if self.next_refresh:  # one automatic refresh pending at a time
+            self.app.root.after_cancel(self.next_refresh)
+        self.next_refresh = self.app.root.after(self.REFRESH_MS, self.refresh)
+
+    def selected(self):
+        sel = self.listbox.curselection()
+        return self.stories[sel[0]] if sel and sel[0] < len(self.stories) else None
+
+    def open_menu(self, event):
+        if self.selected():
+            self.menu.tk_popup(event.x_root, event.y_root)
+
+    def make(self, dry_run=False, only=None):
+        story = self.selected()
+        if not story:
+            messagebox.showinfo(APP_NAME, "목록에서 뉴스를 먼저 골라 주세요.")
+            return
+        panels = [p for p in self.app.panels.values() if p.enabled()]
+        if not panels:
+            messagebox.showinfo(APP_NAME, "켜진 채널이 없어요. ⚙ 설정에서 채널을 켜 주세요.")
+            return
+        if not dry_run:
+            what = {"reel": "릴스", "post": "게시물"}[only]
+            names = ", ".join(p.meta["name"] for p in panels)
+            if not messagebox.askyesno(APP_NAME, f"이 뉴스로 {what}을(를) 만들어 올릴까요?\n\n{story['title']}\n\n채널: {names}"):
+                return
+        for panel in panels:  # one channel at a time (round lock), each in its own language
+            panel.run_now(dry_run=dry_run, only=only, story=story)
+
+
 class App:
     def __init__(self, root, autostart=False, resume=()):
         self.root = root
@@ -433,7 +518,7 @@ class App:
         self._migrate_settings()
 
         root.title(APP_NAME)
-        root.geometry("1680x930")
+        root.geometry("1680x1000")
         root.minsize(1380, 760)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         self._style()
@@ -470,6 +555,8 @@ class App:
         ttk.Label(head, text=f"버전 {app_version()}   ").pack(side="right")
         # fallback when the automatic update can't replace the .exe (e.g. no write permission)
         self.update_btn = ttk.Button(head, text="새 버전 받기", command=lambda: webbrowser.open(DOWNLOAD_URL))
+        self.trending = TrendingPanel(self, outer)
+        self.trending.frame.pack(fill="x", pady=(0, 8))
         body = ttk.Frame(outer)
         body.pack(fill="both", expand=True)
         body.rowconfigure(0, weight=1)

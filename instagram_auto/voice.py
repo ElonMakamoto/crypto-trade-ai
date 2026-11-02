@@ -12,15 +12,18 @@ import requests
 
 import ai
 import config
+import reel
 
-VOICE_NAME = "Charon"  # calm, informative; Gemini voices speak every language
+VOICE_NAME = "Sulafat"  # warm female voice; Gemini voices speak every language
+SPEED = 1.15  # the narration is always played this much faster
 DEFAULT_MODEL = "gemini-2.5-flash-preview-tts"
 RATE = 24000  # Gemini TTS returns 16-bit mono PCM at 24 kHz
 FRAME = RATE // 50  # 20 ms
 _model = None
 
-PROMPT = """Read the following {n} lines aloud in {lang} like a calm, clear TV news anchor, naturally and not
-too fast. Leave a long pause of about two seconds after each line. Read only the lines themselves.
+PROMPT = """Say the following {n} lines in {lang} as a warm, friendly young woman telling a friend about the
+news: natural and conversational, with real expression, not like a news anchor reading. Leave a long pause of
+about two seconds after each line. Say only the lines themselves.
 
 {lines}"""
 
@@ -118,12 +121,15 @@ def narrate(lines, workdir):
         return None
     clips = [None] * len(lines)
     for (i, _), (a, b) in zip(spoken, parts):
-        path = workdir / f"voice{i}.wav"
-        with wave.open(str(path), "wb") as w:
+        raw, path = workdir / f"voice{i}_raw.wav", workdir / f"voice{i}.wav"
+        with wave.open(str(raw), "wb") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(RATE)
             w.writeframes(samples[a:b].tobytes())
-        clips[i] = (path, (b - a) / RATE)
+        # faster without raising the pitch
+        reel._run([reel.ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(raw), "-filter:a", f"atempo={SPEED}",
+                   str(path)])
+        clips[i] = (path, (b - a) / RATE / SPEED)
     print(f"[voice] narrated {len(spoken)} slides ({VOICE_NAME}, {_tts_model()})")
     return clips
