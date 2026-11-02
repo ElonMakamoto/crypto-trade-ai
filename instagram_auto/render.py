@@ -32,6 +32,11 @@ def _bfont(size, weight="ExtraBold"):
     return _font(l10n.fonts()[1], size, weight)
 
 
+def _tfont(size):
+    """Typewriter font for the story text on fact slides."""
+    return _font(l10n.fonts()[2], size, "Bold")
+
+
 def _hex(color):
     color = color.lstrip("#")
     return tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
@@ -102,13 +107,17 @@ def _fit_line(draw, text, make_font, size, max_width, min_size=20):
     return make_font(size)
 
 
+# empty space left and right of the text on every slide
+SIDE = 110
+
+
 def draw_headline(img, box, headline, highlight, align="center"):
     """Draw the headline inside box=(x0, y0, x1, y1), vertically centred."""
     draw = ImageDraw.Draw(img)
     x0, y0, x1, y1 = box
     text = headline.upper()
     tokens = _tokens(text)
-    for size in range(120, 43, -4):
+    for size in range(104, 39, -4):
         font = _hfont(size)
         lines = _wrap(draw, tokens, font, x1 - x0)
         line_h = int(size * 1.15)
@@ -157,7 +166,7 @@ def feed_post(photo_path, headline, highlight, out_path, swipe=False):
     # soft fade from photo into the black text panel
     fade = Image.linear_gradient("L").resize((W, 160))
     img.paste((0, 0, 0), (0, photo_h - 160, W, photo_h), fade)
-    draw_headline(img, (60, photo_h - 40, W - 60, H - 90), headline, highlight)
+    draw_headline(img, (SIDE, photo_h - 40, W - SIDE, H - 90), headline, highlight)
     draw_brand(img, (W // 2, H - 45))
     if swipe:
         ImageDraw.Draw(img).text((W - 40, H - 45), l10n.t("swipe"), font=_bfont(28),
@@ -186,14 +195,14 @@ def fact_slide(photo_path, text, highlight, index, total, out_path):
     draw = ImageDraw.Draw(img)
     box_top, box_bottom = photo_h - 60, H - 100
     tokens = _tokens(text)
-    for size in range(62, 29, -4):
-        font = _bfont(size)
-        lines = _wrap(draw, tokens, font, W - 120)
+    for size in range(54, 27, -4):
+        font = _tfont(size)
+        lines = _wrap(draw, tokens, font, W - 2 * SIDE)
         line_h = int(size * 1.35)
         if line_h * len(lines) <= box_bottom - box_top:
             break
     y = box_top + ((box_bottom - box_top) - line_h * len(lines)) // 2
-    _draw_lines(draw, lines, font, 60, W - 60, y, line_h, _hot(text, highlight))
+    _draw_lines(draw, lines, font, SIDE, W - SIDE, y, line_h, _hot(text, highlight))
     _counter(img, index, total)
     draw_brand(img, (W // 2, H - 45))
     img.save(out_path, "JPEG", quality=92)
@@ -208,11 +217,11 @@ def question_slide(photo_path, out_path, index, total):
     img.paste(Image.eval(photo, lambda v: int(v * 0.35)), (0, 0))
     draw = ImageDraw.Draw(img)
     top, big, sub = l10n.t("question_")
-    draw.text((W // 2, H // 2 - 90), top, font=_fit_line(draw, top, _hfont, 140, W - 120), fill=(255, 255, 255),
+    draw.text((W // 2, H // 2 - 90), top, font=_fit_line(draw, top, _hfont, 140, W - 2 * SIDE), fill=(255, 255, 255),
               anchor="mm")
-    draw.text((W // 2, H // 2 + 60), big, font=_fit_line(draw, big, _hfont, 170, W - 120),
+    draw.text((W // 2, H // 2 + 60), big, font=_fit_line(draw, big, _hfont, 170, W - 2 * SIDE),
               fill=_hex(config.ACCENT_COLOR), anchor="mm")
-    draw.text((W // 2, H // 2 + 220), sub, font=_fit_line(draw, sub, _bfont, 42, W - 120), fill=(255, 255, 255),
+    draw.text((W // 2, H // 2 + 220), sub, font=_fit_line(draw, sub, _bfont, 42, W - 2 * SIDE), fill=(255, 255, 255),
               anchor="mm")
     _counter(img, index, total)
     draw_brand(img, (W // 2, H - 45))
@@ -228,11 +237,12 @@ def cta_slide(out_path, index, total):
     accent = _hex(config.ACCENT_COLOR)
     anton = lambda size: _font(config.FONTS_DIR / "Anton-Regular.ttf", size)  # noqa: E731 (handle is Latin)
     follow, subtitle, actions = l10n.t("follow"), l10n.t("cta_"), l10n.t("actions")
-    draw.text((W // 2, H // 2 - 170), follow, font=_fit_line(draw, follow, _hfont, 150, W - 120),
+    draw.text((W // 2, H // 2 - 170), follow, font=_fit_line(draw, follow, _hfont, 150, W - 2 * SIDE),
               fill=(255, 255, 255), anchor="mm")
     handle = config.BRAND_HANDLE.upper()
-    draw.text((W // 2, H // 2), handle, font=_fit_line(draw, handle, anton, 110, W - 120), fill=accent, anchor="mm")
-    draw.text((W // 2, H // 2 + 150), subtitle, font=_fit_line(draw, subtitle, _bfont, 40, W - 120),
+    draw.text((W // 2, H // 2), handle, font=_fit_line(draw, handle, anton, 110, W - 2 * SIDE), fill=accent,
+              anchor="mm")
+    draw.text((W // 2, H // 2 + 150), subtitle, font=_fit_line(draw, subtitle, _bfont, 40, W - 2 * SIDE),
               fill=(255, 255, 255), anchor="mm")
     draw.text((W // 2, H // 2 + 230), actions, font=_bfont(34, "Bold"), fill=(170, 170, 170), anchor="mm")
     _counter(img, index, total)
@@ -240,13 +250,15 @@ def cta_slide(out_path, index, total):
     return out_path
 
 
-def reel_frame(slide_path, out_path, size=(1080, 1920)):
-    """A 4:5 post slide on a 9:16 frame: the slide in the middle over a dark, blurred copy of itself."""
+def reel_frame(slide_path, out_path, size=(1080, 1920), scale=0.86):
+    """A 4:5 post slide on a 9:16 frame: the slide, a little smaller so its text clears the reel's edges and
+    buttons, in the middle over a dark, blurred copy of itself."""
     W, H = size
     slide = Image.open(slide_path).convert("RGB")
     bg = load_photo(slide_path, (W, H)).filter(ImageFilter.GaussianBlur(40))
     bg = Image.eval(bg, lambda v: int(v * 0.4))
-    slide = slide.resize((W, round(slide.height * W / slide.width)))
-    bg.paste(slide, (0, (H - slide.height) // 2))
+    w = round(W * scale)
+    slide = slide.resize((w, round(slide.height * w / slide.width)), Image.LANCZOS)
+    bg.paste(slide, ((W - w) // 2, (H - slide.height) // 2))
     bg.save(out_path, "JPEG", quality=92)
     return out_path

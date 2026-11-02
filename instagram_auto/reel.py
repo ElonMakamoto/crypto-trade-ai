@@ -27,9 +27,10 @@ def slideshow(slides, out_path, workdir):
         frame = render.reel_frame(image, workdir / f"reel_frame{i}.jpg")
         inputs += ["-i", str(frame)]
         frames = round(seconds * FPS)
-        chain.append(f"[{i}:v]scale=1188:2112,zoompan=z='min(zoom+0.0006,1.06)':d={frames}"
+        chain.append(f"[{i}:v]scale=1188:2112,zoompan=z='min(zoom+0.0003,1.03)':d={frames}"
                      f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={FPS},setsar=1[s{i}]")
-    chain.append("".join(f"[s{i}]" for i in range(len(slides))) + f"concat=n={len(slides)}:v=1:a=0,format=yuv420p[vout]")
+    cuts = "".join(f"[s{i}]" for i in range(len(slides)))
+    chain.append(f"{cuts}concat=n={len(slides)}:v=1:a=0,format=yuv420p[vout]")
     total = sum(seconds for _, seconds in slides)
 
     music = sorted(config.MUSIC_DIR.glob("*.mp3")) if config.MUSIC_DIR.exists() else []
