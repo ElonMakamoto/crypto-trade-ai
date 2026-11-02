@@ -134,15 +134,9 @@ def build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=True):
     return images
 
 
-def reel_timing(images, details):
-    """Seconds per slide in a reel: 2 for the cover, 4 for a slide with a lot of text, 3 for the rest."""
-    long_text = 40 if config.POST_LANGUAGE in ("Korean", "Japanese") else 80
-    texts = [sl["text"] for sl in details["slides"]]
-    timing = [(images[0], 2)]
-    for i, image in enumerate(images[1:]):
-        text = texts[i] if i < len(texts) else ""
-        timing.append((image, 4 if len(text) > long_text else 3))
-    return timing
+def reel_timing(images):
+    """Seconds per slide in a reel: 3 for the cover, 4 for every other slide."""
+    return [(image, 3 if i == 0 else 4) for i, image in enumerate(images)]
 
 
 def run_once(dry_run=False, poster=None, only=None):
@@ -194,7 +188,7 @@ def run_once(dry_run=False, poster=None, only=None):
         media = build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=kind == "post")
         cover_img = media[0]
         if kind == "reel":
-            media = [reel.slideshow(reel_timing(media, details), workdir / f"reel-{stamp}.mp4", workdir)]
+            media = [reel.slideshow(reel_timing(media), workdir / f"reel-{stamp}.mp4", workdir)]
             cover_img = reel.extract_cover(media[0], workdir / f"reel-{stamp}.jpg")
         print(f"[main] {kind} ({len(media)} file{'s' if len(media) > 1 else ''}): {pick['headline']}")
         built.append((kind, pick, story, media, caption, cover_img))

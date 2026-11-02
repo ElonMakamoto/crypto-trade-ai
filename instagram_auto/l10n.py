@@ -30,11 +30,11 @@ TEXT = {
     "source": {"English": "📰 Source: {source}", "Korean": "📰 출처: {source}", "Japanese": "📰 出典: {source}"},
 }
 
-# (headline font, body font) per language; Anton/Montserrat have no Hangul or Kana/Kanji
+# (headline, body, typewriter story-text) fonts per language; Anton/Montserrat have no Hangul or Kana/Kanji
 FONTS = {
-    "English": ("Anton-Regular.ttf", "Montserrat-Variable.ttf"),
-    "Korean": ("BlackHanSans-Regular.ttf", "NotoSansKR-Variable.ttf"),
-    "Japanese": ("DelaGothicOne-Regular.ttf", "NotoSansJP-Variable.ttf"),
+    "English": ("Anton-Regular.ttf", "Montserrat-Variable.ttf", "CourierPrime-Bold.ttf"),
+    "Korean": ("BlackHanSans-Regular.ttf", "NotoSansKR-Variable.ttf", "NanumGothicCoding-Bold.ttf"),
+    "Japanese": ("DelaGothicOne-Regular.ttf", "NotoSansJP-Variable.ttf", "MPLUS1Code-Variable.ttf"),
 }
 
 
@@ -51,5 +51,5 @@ def t(key, **fmt):
 
 
 def fonts():
-    headline, body = FONTS[lang()]
-    return config.FONTS_DIR / headline, config.FONTS_DIR / body
+    """(headline, body, typewriter) font files for the post language."""
+    return tuple(config.FONTS_DIR / name for name in FONTS[lang()])
