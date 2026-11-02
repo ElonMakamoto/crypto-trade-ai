@@ -676,9 +676,8 @@ def selftest(report):
             render.feed_post(photo, headline, [headline.split()[0]], tmp / f"post-{lang}.jpg", swipe=True)
             render.fact_slide(photo, headline + ".", [], 2, 3, tmp / f"slide-{lang}.jpg")
             render.cta_slide(tmp / f"cta-{lang}.jpg", 3, 3)
-        card = render.text_card_background("Test", tmp / "card.jpg")
-        pick = {"headline": "SELF TEST REEL", "highlight": ["REEL"], "reel_lines": ["one", "two"]}
-        video = reel.build_reel([photo, card], pick, tmp, tmp / "reel.mp4")
+        slides = [(tmp / "post-English.jpg", 2), (tmp / "slide-English.jpg", 3), (tmp / "cta-English.jpg", 4)]
+        video = reel.slideshow(slides, tmp / "reel.mp4", tmp)
         reel.extract_cover(video, tmp / "cover.jpg")
         assert secure_store.decrypt(secure_store.encrypt("secret")) == "secret"
         assert Client().user_id is None

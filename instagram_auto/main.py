@@ -115,7 +115,7 @@ def gather_photos(story, ctx, queries, needed, workdir, tag, cover=None, cover_u
     return first + rest[shift:] + rest[:shift]
 
 
-def build_album(pick, story, ctx, details, cover, workdir, stamp):
+def build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=True):
     """Cover + 2-4 fact slides (each with its own photo) + follow slide = 3-6 images."""
     slides = details["slides"]
     queries = [sl.get("image_query", "") for sl in slides] + [pick.get("image_query", ""), story["title"]]
@@ -123,7 +123,7 @@ def build_album(pick, story, ctx, details, cover, workdir, stamp):
     # nothing more to tell than the headline: a comment slide keeps the carousel at 3 slides
     total = max(len(slides), 1) + 2
     images = [render.feed_post(photos[0], pick["headline"], pick.get("highlight"),
-                               workdir / f"post-{stamp}-1.jpg", swipe=True)]
+                               workdir / f"post-{stamp}-1.jpg", swipe=swipe)]
     for i, (slide, photo) in enumerate(zip(slides, photos[1:]), start=2):
         images.append(render.fact_slide(photo, slide["text"], slide.get("highlight"), i, total,
                                         workdir / f"post-{stamp}-{i}.jpg"))
@@ -132,6 +132,17 @@ def build_album(pick, story, ctx, details, cover, workdir, stamp):
         images.append(render.question_slide(photos[0], workdir / f"post-{stamp}-2.jpg", 2, total))
     images.append(render.cta_slide(workdir / f"post-{stamp}-{total}.jpg", total, total))
     return images
+
+
+def reel_timing(images, details):
+    """Seconds per slide in a reel: 2 for the cover, 4 for a slide with a lot of text, 3 for the rest."""
+    long_text = 40 if config.POST_LANGUAGE in ("Korean", "Japanese") else 80
+    texts = [sl["text"] for sl in details["slides"]]
+    timing = [(images[0], 2)]
+    for i, image in enumerate(images[1:]):
+        text = texts[i] if i < len(texts) else ""
+        timing.append((image, 4 if len(text) > long_text else 3))
+    return timing
 
 
 def run_once(dry_run=False, poster=None, only=None):
@@ -175,18 +186,15 @@ def run_once(dry_run=False, poster=None, only=None):
             pick = picks[0]
             story, ctx, cover = by_id[pick["id"]], news.article_context(by_id[pick["id"]]), (None, None)
         picks.remove(pick)
-        details = ai.write_details(pick, story, ctx["text"], n_slides=MAX_FACT_SLIDES if kind == "post" else 0)
+        # reels are made from the same slides as a post
+        details = ai.write_details(pick, story, ctx["text"], n_slides=MAX_FACT_SLIDES)
         ai.localize(pick, details)  # nothing left in English on the Korean/Japanese channels
         caption = build_caption(pick, story, details)
         (workdir / f"{kind}_caption.txt").write_text(caption, encoding="utf-8")
-        if kind == "post":
-            media = build_album(pick, story, ctx, details, cover, workdir, stamp)
-            cover_img = media[0]
-        else:
-            lines = [l for l in (pick.get("reel_lines") or []) if l][:3] or [""]
-            photos = gather_photos(story, ctx, [pick.get("image_query", ""), story["title"]], len(lines), workdir,
-                                   "reel", *cover)
-            media = [reel.build_reel(photos, pick, workdir, workdir / f"reel-{stamp}.mp4")]
+        media = build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=kind == "post")
+        cover_img = media[0]
+        if kind == "reel":
+            media = [reel.slideshow(reel_timing(media, details), workdir / f"reel-{stamp}.mp4", workdir)]
             cover_img = reel.extract_cover(media[0], workdir / f"reel-{stamp}.jpg")
         print(f"[main] {kind} ({len(media)} file{'s' if len(media) > 1 else ''}): {pick['headline']}")
         built.append((kind, pick, story, media, caption, cover_img))
