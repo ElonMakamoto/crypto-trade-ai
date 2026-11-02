@@ -16,6 +16,7 @@ import config
 import l10n
 import news
 import reel
+import voice
 import render
 
 MAX_FACT_SLIDES = 4  # cover + up to 4 fact slides + follow slide = 3-6 images
@@ -138,6 +139,14 @@ def build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=True):
     return images
 
 
+def narration(pick, details):
+    """What the voice reads on each reel slide, in the same order as build_album's images."""
+    lines = [pick["headline"]] + [sl["text"] for sl in details["slides"]]
+    if not details["slides"]:
+        lines.append(" ".join(l10n.t("question_")))
+    return lines + [l10n.t("follow_line_", handle="")]
+
+
 def reel_timing(images):
     """Seconds per slide in a reel: 3 for the cover, 4 for every other slide."""
     return [(image, 3 if i == 0 else 4) for i, image in enumerate(images)]
@@ -192,7 +201,9 @@ def run_once(dry_run=False, poster=None, only=None):
         media = build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=kind == "post")
         cover_img = media[0]
         if kind == "reel":
-            media = [reel.slideshow(reel_timing(media), workdir / f"reel-{stamp}.mp4", workdir)]
+            lines = narration(pick, details)
+            voices = voice.narrate(lines, workdir) if len(lines) == len(media) else None
+            media = [reel.slideshow(reel_timing(media), workdir / f"reel-{stamp}.mp4", workdir, voices)]
             cover_img = reel.extract_cover(media[0], workdir / f"reel-{stamp}.jpg")
         print(f"[main] {kind} ({len(media)} file{'s' if len(media) > 1 else ''}): {pick['headline']}")
         built.append((kind, pick, story, media, caption, cover_img))
