@@ -4,7 +4,6 @@ Three channels side by side (English, 한국어, 日本語): the same world news
 language and posted to its own Instagram account (same Meta token, a different account ID per channel),
 each at its own daily times. Settings live behind the ⚙ 설정 button.
 """
-import math
 import os
 import queue
 import subprocess
@@ -12,9 +11,7 @@ import sys
 import threading
 import tkinter as tk
 import traceback
-import wave
 import webbrowser
-from array import array
 from datetime import datetime
 from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox, scrolledtext, simpledialog, ttk
@@ -38,7 +35,6 @@ TOKEN_HELP_URL = "https://chedlab.org/instagram/#token"
 
 MODES = {"alternate": "하나씩 번갈아 (릴스 → 게시물)", "reel": "릴스만", "post": "게시물만 (3~6장 슬라이드)"}
 FOCUSES = {"world": "세계 주요 뉴스 (자연재해 포함)", "disasters": "자연재해 뉴스만", "trending": "전체 인기 뉴스 (연예·스포츠 포함)"}
-VOICES = {"on": "켜기 (자연스러운 AI 목소리로 읽기)", "off": "끄기 (음악만)"}
 COMMON_FIELDS = [
     # key, label, kind
     ("GOOGLE_API_KEY", "Google API 키", "secret"),
@@ -46,7 +42,6 @@ COMMON_FIELDS = [
     ("NEWS_FOCUS", "뉴스 주제 (모든 채널 공통)", FOCUSES),
     ("ACCENT_COLOR", "강조 색상", "color"),
     ("MUSIC_DIR", "릴스 배경음악 폴더 (선택)", "folder"),
-    ("VOICE", "릴스 음성 읽기 (모든 채널 공통)", VOICES),
 ]
 CHANNEL_FIELDS = [
     ("ENABLED", "이 채널 사용", "check"),
@@ -769,13 +764,7 @@ def selftest(report):
             render.fact_slide(photo, headline + ".", [], 2, 3, tmp / f"slide-{lang}.jpg")
             render.cta_slide(tmp / f"cta-{lang}.jpg", 3, 3)
         slides = [(tmp / "post-English.jpg", 2), (tmp / "slide-English.jpg", 3), (tmp / "cta-English.jpg", 4)]
-        clip = tmp / "voice.wav"  # 1 s test tone standing in for a narration clip
-        with wave.open(str(clip), "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(24000)
-            w.writeframes(array("h", [int(8000 * math.sin(i / 20)) for i in range(24000)]).tobytes())
-        video = reel.slideshow(slides, tmp / "reel.mp4", tmp, voices=[(clip, 1.0), None, None])
+        video = reel.slideshow(slides, tmp / "reel.mp4", tmp)
         reel.extract_cover(video, tmp / "cover.jpg")
         assert secure_store.decrypt(secure_store.encrypt("secret")) == "secret"
         assert Client().user_id is None

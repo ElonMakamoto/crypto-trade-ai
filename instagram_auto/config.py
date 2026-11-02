@@ -58,8 +58,6 @@ DEFAULTS = {
     "INTERVAL_HOURS": "5",  # used by the command-line --loop only
     "REEL_SECONDS": "8",
     "MUSIC_DIR": "",
-    # "on" = a natural AI voice (Gemini text-to-speech) reads each reel slide, "off" = music only
-    "VOICE": "on",
 }
 
 
