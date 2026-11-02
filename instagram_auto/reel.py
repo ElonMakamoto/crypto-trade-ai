@@ -8,6 +8,10 @@ import config
 import render
 
 FPS = 30
+# Instagram's Reels spec: H.264 4:2:0, closed GOP, keyframe every 2 s; AAC at most 48 kHz and 128 kbps
+IG_VIDEO = ["-c:v", "libx264", "-preset", "slow", "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p",
+            "-r", str(FPS), "-g", str(FPS * 2)]
+IG_AUDIO = ["-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k"]
 
 
 def ffmpeg_exe():
@@ -20,52 +24,41 @@ def ffmpeg_exe():
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def slideshow(slides, out_path, workdir, voices=None):
-    """slides: [(post image, seconds)] -> 9:16 reel showing each post slide in turn (still, no motion), with music.
-
-    voices: optional [(wav, seconds) or None] per slide; a slide stays up until its narration has finished, and
-    the music is turned down under the voice.
-    """
-    voices = voices or [None] * len(slides)
-    lead, tail = 0.3, 0.6  # silence before / after each narration clip
-    timing = [max(seconds, round(lead + v[1] + tail, 2)) if v else seconds for (_, seconds), v in zip(slides, voices)]
+def slideshow(slides, out_path, workdir):
+    """slides: [(post image, seconds)] -> 9:16 reel showing each post slide in turn (still, no motion), with music."""
     inputs, chain = [], []
-    for i, ((image, _), seconds) in enumerate(zip(slides, timing)):
+    for i, (image, seconds) in enumerate(slides):
         frame = render.reel_frame(image, workdir / f"reel_frame{i}.jpg")
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", str(seconds), "-i", str(frame)]
         chain.append(f"[{i}:v]setsar=1[s{i}]")
     cuts = "".join(f"[s{i}]" for i in range(len(slides)))
     chain.append(f"{cuts}concat=n={len(slides)}:v=1:a=0,format=yuv420p[vout]")
-    total = round(sum(timing), 2)
+    total = sum(seconds for _, seconds in slides)
 
     music = sorted(config.MUSIC_DIR.glob("*.mp3")) if config.MUSIC_DIR.exists() else []
     if music:
         inputs += ["-stream_loop", "-1", "-i", str(random.choice(music))]
     else:
         inputs += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
-    narrated = any(voices)
-    chain.append(f"[{len(slides)}:a]atrim=0:{total},volume={0.18 if narrated else 0.6}[music]")
-    mix, start, index = ["[music]"], 0.0, len(slides) + 1  # ffmpeg input number of the next voice clip
-    for i, (voice, seconds) in enumerate(zip(voices, timing)):
-        if voice:
-            inputs += ["-i", str(voice[0])]
-            delay = int((start + lead) * 1000)
-            chain.append(f"[{index}:a]aresample=44100,aformat=channel_layouts=stereo,"
-                         f"adelay={delay}|{delay},volume=1.6[v{i}]")
-            mix.append(f"[v{i}]")
-            index += 1
-        start += seconds
-    chain.append(f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:normalize=0,"
-                 f"afade=t=out:st={max(total - 1, 0)}:d=1[aout]")
+    chain.append(f"[{len(slides)}:a]afade=t=out:st={max(total - 1, 0)}:d=1,volume=0.6[aout]")
 
     _run([
         ffmpeg_exe(), "-y", "-loglevel", "error", *inputs,
         "-filter_complex", ";".join(chain),
         "-map", "[vout]", "-map", "[aout]", "-t", str(total),
-        "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-tune", "stillimage", "-profile:v", "high",
-        "-r", str(FPS), "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out_path),
+        *IG_VIDEO, "-crf", "17", "-tune", "stillimage", *IG_AUDIO, "-movflags", "+faststart", str(out_path),
     ])
     return out_path
+
+
+def instagram_safe(video_path):
+    """A plainer re-encode for when Meta can't process a reel: main profile, steady bitrate, standard audio."""
+    out = video_path.with_name(video_path.stem + "-safe.mp4")
+    _run([ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(video_path),
+          "-c:v", "libx264", "-preset", "medium", "-profile:v", "main", "-level", "4.0", "-pix_fmt", "yuv420p",
+          "-r", str(FPS), "-g", str(FPS * 2), "-b:v", "5M", "-maxrate", "6M", "-bufsize", "10M",
+          *IG_AUDIO, "-movflags", "+faststart", str(out)])
+    return out
 
 
 def still_video(image_path, out_path, seconds=6):
