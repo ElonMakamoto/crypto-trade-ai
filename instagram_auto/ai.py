@@ -48,6 +48,29 @@ STORIES:
 {stories}
 """
 
+WORLD_PROMPT = """You run a big Instagram world-news page in the bold visual style of @pubity, with a factual tone.
+From the stories below, pick the {n} BIGGEST stories the whole world is talking about right now: major world
+events, international politics and diplomacy, wars and peace talks, economy and markets moves that affect everyone,
+major natural disasters, landmark science/space/tech news, and the most famous people in the news. Prefer stories
+that matter to people in many countries; skip local, minor or niche stories, rumours, and duplicates of one event.
+Tragedies are reported respectfully (no graphic detail, no jokes).
+
+For each pick return:
+- "id": the story id
+- "headline": an ALL-CAPS headline in {lang}, max 14 words, factual (no invented details)
+- "highlight": 1-3 words from the headline to colour as the accent (exact substrings)
+- "caption": 2-3 short factual sentences in {lang}
+- "hashtags": 5 hashtags without '#': the main names/places, the topic, worldnews, news
+- "image_query": 2-5 words to find a photo of THIS story (people/place names)
+- "reel_lines": 3 short factual lines in {lang} (max 8 words each)
+
+Respond with JSON only: {{"picks": [ ... ]}}
+
+STORIES:
+{stories}
+"""
+PROMPTS = {"disasters": DISASTER_PROMPT, "world": WORLD_PROMPT}
+
 
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -288,7 +311,7 @@ def pick_and_write(stories, n, skip_ids):
         return _fallback(candidates, n)
     listing = "\n".join(f'{s["id"]} | {s["topic"]} | {s["title"]} ({s["source"]})' for s in candidates)
     try:
-        prompt = DISASTER_PROMPT if config.NEWS_FOCUS == "disasters" else PROMPT
+        prompt = PROMPTS.get(config.NEWS_FOCUS, PROMPT)
         data = _gemini(prompt.format(n=n, lang=config.POST_LANGUAGE, stories=listing))
         by_id = {s["id"]: s for s in candidates}
         picks = [p for p in data.get("picks", []) if p.get("id") in by_id]

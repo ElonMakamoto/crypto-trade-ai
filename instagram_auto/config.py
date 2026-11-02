@@ -31,8 +31,9 @@ SECRET_KEYS = {"GOOGLE_API_KEY", "IG_PASSWORD", "IG_ACCESS_TOKEN"}
 DEFAULTS = {
     "GOOGLE_API_KEY": "",
     "GEMINI_MODEL": "gemini-2.5-flash",
-    # "disasters" = natural disaster news only, "trending" = all top stories
-    "NEWS_FOCUS": "disasters",
+    # "world" = the biggest world news incl. natural disasters, "disasters" = natural disasters only,
+    # "trending" = all top stories (incl. entertainment and sports)
+    "NEWS_FOCUS": "world",
     "NEWS_COUNTRY": "US",
     "NEWS_LANGUAGE": "en",
     "POST_LANGUAGE": "English",
@@ -72,6 +73,17 @@ def load_settings():
     return data
 
 
+def _switch_to_world_news(saved):
+    """One-time move from the old default (natural disasters only) to world news; later choices are kept."""
+    if saved and not saved.get("WORLD_NEWS_SWITCHED"):
+        saved["WORLD_NEWS_SWITCHED"] = "1"
+        if saved.get("NEWS_FOCUS") == "disasters":
+            saved["NEWS_FOCUS"] = "world"
+        save_settings(saved)
+        saved = load_settings()
+    return saved
+
+
 def save_settings(values):
     import secure_store
 
@@ -90,7 +102,7 @@ def current():
 
 def reload():
     """(Re)compute module settings: saved app settings > environment > defaults."""
-    saved = load_settings()
+    saved = _switch_to_world_news(load_settings())
     g = globals()
     for key, default in DEFAULTS.items():
         g[key] = (saved.get(key) or os.environ.get(key) or default).strip()
