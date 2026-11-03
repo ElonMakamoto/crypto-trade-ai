@@ -143,9 +143,19 @@ def reel_timing(images):
     return [(image, 3 if i == 0 else 4) for i, image in enumerate(images)]
 
 
-def run_once(dry_run=False, poster=None, only=None, story=None):
+class Cancelled(Exception):
+    """The user pressed cancel: the round stops at the next step, before anything is uploaded."""
+
+
+def run_once(dry_run=False, poster=None, only=None, story=None, cancel=None):
     """One round: returns the list of media files made. only="reel"/"post" forces that kind; story (a news item
-    picked in the app's trending list) makes the post about that story instead of choosing one."""
+    picked in the app's trending list) makes the post about that story instead of choosing one; cancel (a
+    threading.Event) stops the round between steps."""
+
+    def check():
+        if cancel is not None and cancel.is_set():
+            raise Cancelled()
+
     state = load_state()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     workdir = config.OUTPUT_DIR / stamp
@@ -167,6 +177,7 @@ def run_once(dry_run=False, poster=None, only=None, story=None):
         print("[main] no news fetched — skipping this round")
         return []
     # a few spare stories, so one without a related photo for the front can be skipped
+    check()
     picks = ai.pick_and_write(stories, len(kinds) + 3, skip)
     if not picks:
         print("[main] no new stories this round")
@@ -178,6 +189,7 @@ def run_once(dry_run=False, poster=None, only=None, story=None):
         if not picks:
             break
         for pick in list(picks):
+            check()
             story = by_id[pick["id"]]
             ctx = news.article_context(story)
             cover = find_cover(story, ctx, pick.get("image_query", ""), workdir, kind)
@@ -189,12 +201,15 @@ def run_once(dry_run=False, poster=None, only=None, story=None):
             pick = picks[0]
             story, ctx, cover = by_id[pick["id"]], news.article_context(by_id[pick["id"]]), (None, None)
         picks.remove(pick)
+        check()
         # reels are made from the same slides as a post
         details = ai.write_details(pick, story, ctx["text"], n_slides=MAX_FACT_SLIDES)
         ai.localize(pick, details)  # nothing left in English on the Korean/Japanese channels
         caption = build_caption(pick, story, details)
         (workdir / f"{kind}_caption.txt").write_text(caption, encoding="utf-8")
+        check()
         media = build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=kind == "post")
+        check()
         cover_img = media[0]
         if kind == "reel":
             media = [reel.slideshow(reel_timing(media), workdir / f"reel-{stamp}.mp4", workdir)]
@@ -207,6 +222,7 @@ def run_once(dry_run=False, poster=None, only=None, story=None):
     for kind, pick, story, media, caption, cover in built:
         if dry_run:
             continue
+        check()  # last chance to stop before it goes online
         try:
             if kind == "post":
                 code = poster.post_album(media, caption)

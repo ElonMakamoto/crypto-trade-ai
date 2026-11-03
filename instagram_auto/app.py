@@ -242,6 +242,7 @@ class ChannelPanel:
         self.app, self.cid, self.meta = app, cid, config.CHANNELS[cid]
         self.log_q = queue.Queue()
         self.stop_event = threading.Event()
+        self.cancel_event = threading.Event()  # set by ⏹ 취소: the running job stops at its next step
         self.auto_thread = None
         self.next_run = None
         self.working = False
@@ -267,6 +268,9 @@ class ChannelPanel:
             self.buttons.append(btn)
         ttk.Button(controls, text="📁", width=3, command=lambda: open_path(config._BASE_OUTPUT_DIR / cid)).pack(
             side="right")
+        self.cancel_btn = ttk.Button(controls, text="⏹ 취소", command=self.cancel)
+        self.cancel_btn.pack(side="right", padx=(0, 6))
+        self.cancel_btn.state(["disabled"])
 
         self.status = tk.StringVar()
         ttk.Label(frame, textvariable=self.status, style="Status.TLabel", wraplength=500).grid(
@@ -322,34 +326,52 @@ class ChannelPanel:
 
     # ----- running
     def run_now(self, dry_run=False, only=None, story=None):
+        """A button press: makes the news picked in the trending list (if any) for this channel only."""
+        story = story or self.app.trending.selected()
         if not dry_run and not self.app.ready(self.cid):
             return
+        if story:
+            self.log_q.put(f"📰 고른 뉴스로 만듭니다: {story['title']}\n")
         threading.Thread(target=self.round, args=(dry_run, only, story), daemon=True).start()
+
+    def cancel(self):
+        if self.working:
+            self.cancel_event.set()
+            self.cancel_btn.state(["disabled"])
+            self.set_status("⏹ 취소하는 중... (지금 단계가 끝나면 멈춥니다, 업로드는 하지 않아요)")
 
     def round(self, dry_run=False, only=None, story=None):
         _local.channel = self.cid
         what = {"reel": "릴스", "post": "게시물"}.get(only, "")
         self.working = True
+        self.cancel_event.clear()
+        self.app.root.after(0, lambda: self.cancel_btn.state(["!disabled"]))
         if self.app.round_lock.locked():
             self.set_status("⏳ 다른 채널 작업이 끝나길 기다리는 중...")
         with self.app.round_lock:  # one round at a time across channels (they share the settings module)
             try:
+                if self.cancel_event.is_set():
+                    raise bot.Cancelled()
                 self.set_status("👁 미리보기 만드는 중..." if dry_run else f"⏫ 뉴스 찾고 {what} 업로드하는 중...")
                 print(f"\n=== {datetime.now():%Y-%m-%d %H:%M} {'미리보기' if dry_run else '업로드'} 시작 ===\n")
                 config.use_channel(self.cid)
                 uploader = None if dry_run else poster.get_poster(self.app.ask_code)
-                made = bot.run_once(dry_run=dry_run, poster=uploader, only=only, story=story)
+                made = bot.run_once(dry_run=dry_run, poster=uploader, only=only, story=story,
+                                    cancel=self.cancel_event)
                 # slide images as they are, videos by their cover frame
                 images = [m if m.suffix == ".jpg" else m.with_suffix(".jpg") for m in made]
                 images = [m for m in images if m.exists()]
                 if images:
                     self.app.root.after(0, self.show_preview, images)
                 print("=== 완료 ===\n")
+            except bot.Cancelled:
+                print("⏹ 취소했습니다. 이번 작업은 올리지 않았어요.\n")
             except Exception as e:
                 print(f"❌ 실패: {e}\n")
                 traceback.print_exc()
             finally:
                 self.working = False
+                self.app.root.after(0, lambda: self.cancel_btn.state(["disabled"]))
                 self.set_status()
 
     def _auto_loop(self):
@@ -434,9 +456,12 @@ class TrendingPanel:
         head = ttk.Frame(frame)
         head.grid(row=0, column=0, columnspan=3, sticky="ew")
         ttk.Label(head, text="🔥 지금 뜨는 세계 뉴스 TOP 10", style="Channel.TLabel").pack(side="left")
-        ttk.Label(head, text="  클릭하면 그 뉴스로 만들어요 (켜진 채널 모두)", foreground="#666").pack(side="left")
+        ttk.Label(head, text="  뉴스를 고르고 채널의 🎬/🖼/👁 버튼 → 그 채널만 · 오른쪽 버튼(또는 더블클릭) → 켜진 채널 모두",
+                  foreground="#666").pack(side="left")
         self.updated = tk.StringVar()
         ttk.Button(head, text="🔄 새로고침", command=self.refresh).pack(side="right")
+        ttk.Button(head, text="선택 해제", command=lambda: self.listbox.selection_clear(0, "end")).pack(
+            side="right", padx=(0, 6))
         ttk.Label(head, textvariable=self.updated, foreground="#666").pack(side="right", padx=8)
         self.listbox = tk.Listbox(frame, height=5, activestyle="none", exportselection=False,
                                   font=("Segoe UI" if sys.platform == "win32" else "TkDefaultFont", 10))
@@ -453,7 +478,8 @@ class TrendingPanel:
             self.menu.add_command(label=text, command=lambda kw=kw: self.make(**kw))
         self.menu.add_separator()
         self.menu.add_command(label="취소")
-        self.listbox.bind("<ButtonRelease-1>", self.open_menu)
+        self.listbox.bind("<Double-Button-1>", self.open_menu)
+        self.listbox.bind("<Button-3>", self.open_menu)
         self.refresh()
 
     def refresh(self):
@@ -484,6 +510,9 @@ class TrendingPanel:
         return self.stories[sel[0]] if sel and sel[0] < len(self.stories) else None
 
     def open_menu(self, event):
+        if event.num == 3:  # right click: pick the row under the mouse first
+            self.listbox.selection_clear(0, "end")
+            self.listbox.selection_set(self.listbox.nearest(event.y))
         if self.selected():
             self.menu.tk_popup(event.x_root, event.y_root)
 
