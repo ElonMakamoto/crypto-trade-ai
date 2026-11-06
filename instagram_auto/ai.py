@@ -250,6 +250,39 @@ def write_details(pick, story, article_text, n_slides=4):
     return _fallback_details(pick, story, article_text, n_slides)
 
 
+RANK_PROMPT = """Your readers: {audience}
+Below are news stories from Google News right now. Pick the {n} stories YOUR readers would most want to read and
+share, most interesting first. Skip duplicates of one event, minor items and rumours.
+For each pick return "id" and "en": one clear English sentence (max 22 words) saying what the story is about,
+so someone who doesn't read the original language understands it.
+
+Respond with JSON only: {{"picks": [{{"id": "...", "en": "..."}}]}}
+
+STORIES:
+{stories}
+"""
+
+
+def rank_trending(stories, language, n=10):
+    """[(story, English one-liner)] — the n stories the channel's readers would care about most. Without a
+    key (or if Gemini fails) the stories keep their order and their own titles."""
+    for i, s in enumerate(stories):
+        s["id"] = f"t{i}"
+    if config.GOOGLE_API_KEY and stories:
+        listing = "\n".join(f'{s["id"]} | {s["topic"]} | {s["title"]} ({s["source"]})' for s in stories)
+        try:
+            data = _gemini(RANK_PROMPT.format(audience=AUDIENCE.get(language, AUDIENCE["English"]), n=n,
+                                              stories=listing))
+            by_id = {s["id"]: s for s in stories}
+            ranked = [(by_id[p["id"]], str(p.get("en") or by_id[p["id"]]["title"]))
+                      for p in data.get("picks", []) if p.get("id") in by_id]
+            if ranked:
+                return ranked[:n]
+        except (requests.RequestException, KeyError, ValueError, TypeError) as e:
+            print(f"[ai] ranking the news list failed ({e}) — showing Google's order")
+    return [(s, s["title"]) for s in stories[:n]]
+
+
 SCRIPTS = {"Korean": re.compile(r"[\uac00-\ud7a3]"), "Japanese": re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")}
 
 TRANSLATE_PROMPT = """Translate each item into natural {lang} for an Instagram news page about the same story.
