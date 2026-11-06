@@ -116,9 +116,11 @@ def reload():
 
 # ---------- channels: one Instagram account per language, same Meta token ----------
 CHANNELS = {
-    "en": {"name": "English", "language": "English", "tz": "America/New_York", "tz_label": "뉴욕시간"},
-    "ko": {"name": "한국어", "language": "Korean", "tz": "Asia/Seoul", "tz_label": "한국시간"},
-    "ja": {"name": "日本語", "language": "Japanese", "tz": "Asia/Seoul", "tz_label": "한국시간"},
+    # "news": the Google News edition (language, country) each channel picks its stories from
+    "en": {"name": "English", "language": "English", "tz": "America/New_York", "tz_label": "뉴욕시간",
+           "news": ("en", "US")},
+    "ko": {"name": "한국어", "language": "Korean", "tz": "Asia/Seoul", "tz_label": "한국시간", "news": ("ko", "KR")},
+    "ja": {"name": "日本語", "language": "Japanese", "tz": "Asia/Seoul", "tz_label": "한국시간", "news": ("ja", "JP")},
 }
 CHANNEL_DEFAULTS = {"ENABLED": "", "IG_USER_ID": "", "BRAND_HANDLE": "@yourpage",
                     "POST_TIMES": "09:00,12:00,15:00,18:00,21:00", "POST_MODE": "alternate",
@@ -173,6 +175,7 @@ def _apply(cid, saved):
     g = globals()
     meta = CHANNELS[cid]
     values = load_channel(cid, saved)
+    g.update(NEWS_LANGUAGE=meta["news"][0], NEWS_COUNTRY=meta["news"][1])
     g.update(CHANNEL=cid, CHANNEL_INDEX=list(CHANNELS).index(cid), POST_LANGUAGE=meta["language"],
              TIMEZONE=meta["tz"], BRAND_HANDLE=values["BRAND_HANDLE"], IG_USER_ID=values["IG_USER_ID"],
              POST_TIMES=values["POST_TIMES"], POST_MODE=values["POST_MODE"])
