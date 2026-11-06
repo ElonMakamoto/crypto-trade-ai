@@ -146,26 +146,13 @@ def fetch_trending(limit=40):
     return _fetch_feeds([("TOP", _rss_url())] + [(t, _rss_url(t)) for t in TOPICS], limit)
 
 
-def top_world(n=10, lang="en", country="US"):
-    """The n biggest stories right now for one edition's readers, in Google News' own order (most important
-    first): top news and world news in English; top, national and tech news in Korean and Japanese."""
-    topics = ("TOP", "WORLD") if lang == "en" else ("TOP", "NATION", "TECHNOLOGY")
-    feeds, seen = [], set()
-    for topic in topics:
-        try:
-            r = requests.get(_rss_url(None if topic == "TOP" else topic, lang, country), headers=UA, timeout=20)
-            r.raise_for_status()
-            feeds.append([dict(s, topic=topic) for s in _parse(r.text)])
-        except requests.RequestException as e:
-            print(f"[news] {country} {topic} failed: {e}")
-    stories = []
-    for row in zip(*feeds) if feeds else ():
-        for s in row:  # alternate the lists so each kind of news shows up
-            key = re.sub(r"\W+", "", s["title"].lower())[:60]
-            if key and key not in seen:
-                seen.add(key)
-                stories.append(dict(s, key=key))
-    return (stories if lang == "en" else _local(stories))[:n]
+def trending_pool(lang="en", country="US", limit=40):
+    """Candidate stories for a channel's top-10 list: the sections of its own Google News edition that its
+    readers follow (US politics left out for Korea and Japan); the AI ranks them for those readers."""
+    sections = WORLD_TOPICS if lang == "en" else LOCAL_TOPICS
+    feeds = [("TOP", _rss_url(None, lang, country))] + [(t, _rss_url(t, lang, country)) for t in sections]
+    stories = _fetch_feeds(feeds, limit)
+    return stories if lang == "en" else _local(stories)
 
 
 def resolve_google_news(url):

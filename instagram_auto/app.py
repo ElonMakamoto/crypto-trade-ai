@@ -19,6 +19,7 @@ from tkinter import colorchooser, filedialog, messagebox, scrolledtext, simpledi
 import requests
 from PIL import Image, ImageTk
 
+import ai
 import config
 import main as bot
 import news
@@ -247,10 +248,12 @@ class ChannelPanel:
         self.next_run = None
         self.working = False
         self.preview_imgs = []
+        self.news = []  # [(story, English one-liner)] shown in this channel's top-10 list
+        self.next_news = None
 
         frame = self.frame = ttk.Frame(parent, padding=10, relief="groove")
         frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(4, weight=1)
+        frame.rowconfigure(5, weight=1)
         head = ttk.Frame(frame)
         head.grid(row=0, column=0, sticky="ew")
         ttk.Label(head, text=self.meta["name"], style="Channel.TLabel").pack(side="left")
@@ -275,13 +278,82 @@ class ChannelPanel:
         self.status = tk.StringVar()
         ttk.Label(frame, textvariable=self.status, style="Status.TLabel", wraplength=500).grid(
             row=2, column=0, sticky="w", pady=(8, 6))
+        self._build_news(frame)
         self.preview = ttk.Frame(frame, height=262)
-        self.preview.grid(row=3, column=0, sticky="ew")
+        self.preview.grid(row=4, column=0, sticky="ew", pady=(6, 0))
         self.preview.grid_propagate(False)
-        self.log = scrolledtext.ScrolledText(frame, height=12, font=("Consolas", 9), state="disabled", wrap="word")
-        self.log.grid(row=4, column=0, sticky="nsew", pady=(6, 0))
+        self.log = scrolledtext.ScrolledText(frame, height=10, font=("Consolas", 9), state="disabled", wrap="word")
+        self.log.grid(row=5, column=0, sticky="nsew", pady=(6, 0))
         self.show_preview([])
         self.refresh()
+        self.app.root.after(500 + 4000 * list(config.CHANNELS).index(cid), self.load_news)
+
+    # ----- this channel's top-10 news
+    NEWS_REFRESH_MS = 60 * 60 * 1000
+
+    def _build_news(self, frame):
+        box = ttk.Frame(frame)
+        box.grid(row=3, column=0, sticky="ew")
+        box.columnconfigure(0, weight=1)
+        head = ttk.Frame(box)
+        head.grid(row=0, column=0, columnspan=2, sticky="ew")
+        ttk.Label(head, text=f"🔥 {self.meta['name']} 독자 관심 TOP 10", style="Status.TLabel").pack(side="left")
+        self.news_time = tk.StringVar()
+        ttk.Label(head, textvariable=self.news_time, foreground="#666").pack(side="left", padx=6)
+        ttk.Button(head, text="🔄", width=3, command=self.load_news).pack(side="right")
+        ttk.Button(head, text="선택 해제", command=lambda: self.news_list.selection_clear(0, "end")).pack(
+            side="right", padx=(0, 4))
+        font = ("Segoe UI" if sys.platform == "win32" else "TkDefaultFont", 9)
+        self.news_list = tk.Listbox(box, height=6, activestyle="none", exportselection=False, font=font)
+        self.news_list.grid(row=1, column=0, sticky="ew", pady=(3, 0))
+        bar = ttk.Scrollbar(box, orient="vertical", command=self.news_list.yview)
+        bar.grid(row=1, column=1, sticky="ns", pady=(3, 0))
+        self.news_list.configure(yscrollcommand=bar.set)
+        self.news_menu = tk.Menu(self.app.root, tearoff=False)
+        for text, kw in [("👁 이 뉴스로 미리보기", {"dry_run": True}), ("🎬 이 뉴스로 릴스 올리기", {"only": "reel"}),
+                         ("🖼 이 뉴스로 게시물 올리기", {"only": "post"})]:
+            self.news_menu.add_command(label=text, command=lambda kw=kw: self.run_now(**kw))
+        self.news_menu.add_separator()
+        self.news_menu.add_command(label="취소")
+        self.news_list.bind("<Double-Button-1>", self._news_menu)
+        self.news_list.bind("<Button-3>", self._news_menu)
+
+    def _news_menu(self, event):
+        if event.num == 3:  # right click: pick the row under the mouse first
+            self.news_list.selection_clear(0, "end")
+            self.news_list.selection_set(self.news_list.nearest(event.y))
+        if self.picked_story():
+            self.news_menu.tk_popup(event.x_root, event.y_root)
+
+    def picked_story(self):
+        sel = self.news_list.curselection()
+        return self.news[sel[0]][0] if sel and sel[0] < len(self.news) else None
+
+    def load_news(self):
+        """This channel's top 10: its country's Google News, ranked by the AI for its readers, in English."""
+        self.news_time.set("불러오는 중...")
+        threading.Thread(target=self._fetch_news, daemon=True).start()
+
+    def _fetch_news(self):
+        _local.channel = self.cid
+        try:
+            ranked = ai.rank_trending(news.trending_pool(*self.meta["news"]), self.meta["language"])
+        except Exception as e:  # network trouble: keep the old list
+            print(f"[news] top 10 failed: {e}")
+            ranked = None
+        self.app.root.after(0, self._show_news, ranked)
+
+    def _show_news(self, ranked):
+        if ranked:
+            self.news = ranked
+            self.news_list.delete(0, "end")
+            for i, (story, line) in enumerate(ranked, 1):
+                source = f"  — {story['source']}" if story.get("source") else ""
+                self.news_list.insert("end", f"{i:>2}. {line}{source}")
+        self.news_time.set(f"{datetime.now():%H:%M} 기준" if self.news else "불러오지 못했어요 · 🔄")
+        if self.next_news:  # one automatic refresh pending at a time
+            self.app.root.after_cancel(self.next_news)
+        self.next_news = self.app.root.after(self.NEWS_REFRESH_MS, self.load_news)
 
     # ----- state
     def settings(self):
@@ -326,8 +398,8 @@ class ChannelPanel:
 
     # ----- running
     def run_now(self, dry_run=False, only=None, story=None):
-        """A button press: makes the news picked in the trending list (if any) for this channel only."""
-        story = story or self.app.trending.selected()
+        """A button press: makes the story picked in this channel's top-10 list (if any), else picks one."""
+        story = story or self.picked_story()
         if not dry_run and not self.app.ready(self.cid):
             return
         if story:
@@ -443,119 +515,6 @@ class ChannelPanel:
 
 
 # ---------------------------------------------------------------- main window
-class TrendingPanel:
-    """Top 10 stories right now for each channel's readers (US news in English, Korean news in Korean, Japanese
-    news in Japanese), one tab each. A channel's own buttons make the picked story for that channel; the menu
-    (double or right click) makes it on every enabled channel."""
-
-    REFRESH_MS = 30 * 60 * 1000
-
-    def __init__(self, app, parent):
-        self.app, self.next_refresh = app, None
-        self.stories = {cid: [] for cid in config.CHANNELS}
-        self.lists = {}
-        frame = self.frame = ttk.Frame(parent, padding=(10, 6), relief="groove")
-        frame.columnconfigure(0, weight=1)
-        head = ttk.Frame(frame)
-        head.grid(row=0, column=0, columnspan=2, sticky="ew")
-        ttk.Label(head, text="🔥 지금 뜨는 뉴스 TOP 10", style="Channel.TLabel").pack(side="left")
-        ttk.Label(head, text="  고르고 채널의 🎬/🖼/👁 → 그 채널만 · 오른쪽 버튼(또는 더블클릭) → 켜진 채널 모두",
-                  foreground="#666").pack(side="left")
-        self.updated = tk.StringVar()
-        ttk.Button(head, text="🔄 새로고침", command=self.refresh).pack(side="right")
-        ttk.Button(head, text="선택 해제", command=self.clear).pack(side="right", padx=(0, 6))
-        ttk.Label(head, textvariable=self.updated, foreground="#666").pack(side="right", padx=8)
-        self.tabs = ttk.Notebook(frame)
-        self.tabs.grid(row=1, column=0, sticky="ew", pady=(6, 0))
-        font = ("Malgun Gothic" if sys.platform == "win32" else "TkDefaultFont", 10)
-        for cid, meta in config.CHANNELS.items():
-            tab = ttk.Frame(self.tabs)
-            tab.columnconfigure(0, weight=1)
-            box = self.lists[cid] = tk.Listbox(tab, height=5, activestyle="none", exportselection=False, font=font)
-            box.grid(row=0, column=0, sticky="ew")
-            bar = ttk.Scrollbar(tab, orient="vertical", command=box.yview)
-            bar.grid(row=0, column=1, sticky="ns")
-            box.configure(yscrollcommand=bar.set)
-            box.bind("<Double-Button-1>", self.open_menu)
-            box.bind("<Button-3>", self.open_menu)
-            self.tabs.add(tab, text=f"  {meta['name']}  ")
-        actions = ttk.Frame(frame)
-        actions.grid(row=1, column=1, sticky="n", padx=(10, 0), pady=(28, 0))
-        self.menu = tk.Menu(self.app.root, tearoff=False)
-        for text, kw in [("👁 미리보기 만들기", {"dry_run": True}), ("🎬 릴스로 올리기", {"only": "reel"}),
-                         ("🖼 게시물로 올리기", {"only": "post"})]:
-            ttk.Button(actions, text=text, width=16, command=lambda kw=kw: self.make(**kw)).pack(pady=(0, 3))
-            self.menu.add_command(label=text, command=lambda kw=kw: self.make(**kw))
-        self.menu.add_separator()
-        self.menu.add_command(label="취소")
-        self.refresh()
-
-    def refresh(self):
-        self.updated.set("불러오는 중...")
-        threading.Thread(target=self._load, daemon=True).start()
-
-    def _load(self):
-        found = {}
-        for cid, meta in config.CHANNELS.items():
-            try:
-                found[cid] = news.top_world(10, *meta["news"])
-            except Exception as e:  # network trouble: keep that tab's old list
-                print(f"[news] trending list ({meta['name']}) failed: {e}")
-        self.app.root.after(0, self._show, found)
-
-    def _show(self, found):
-        for cid, stories in found.items():
-            if not stories:
-                continue
-            self.stories[cid] = stories
-            box = self.lists[cid]
-            box.delete(0, "end")
-            for i, s in enumerate(stories, 1):
-                box.insert("end", f"{i:>2}. {s['title']}" + (f"  — {s['source']}" if s.get("source") else ""))
-        ok = any(self.stories.values())
-        self.updated.set(f"{datetime.now():%H:%M} 기준" if ok else "불러오지 못했어요 · 🔄 새로고침")
-        if self.next_refresh:  # one automatic refresh pending at a time
-            self.app.root.after_cancel(self.next_refresh)
-        self.next_refresh = self.app.root.after(self.REFRESH_MS, self.refresh)
-
-    def _current(self):
-        return list(config.CHANNELS)[self.tabs.index(self.tabs.select())]
-
-    def selected(self):
-        """The story picked in the tab that is showing, or None."""
-        cid = self._current()
-        sel = self.lists[cid].curselection()
-        return self.stories[cid][sel[0]] if sel and sel[0] < len(self.stories[cid]) else None
-
-    def clear(self):
-        for box in self.lists.values():
-            box.selection_clear(0, "end")
-
-    def open_menu(self, event):
-        if event.num == 3:  # right click: pick the row under the mouse first
-            event.widget.selection_clear(0, "end")
-            event.widget.selection_set(event.widget.nearest(event.y))
-        if self.selected():
-            self.menu.tk_popup(event.x_root, event.y_root)
-
-    def make(self, dry_run=False, only=None):
-        story = self.selected()
-        if not story:
-            messagebox.showinfo(APP_NAME, "목록에서 뉴스를 먼저 골라 주세요.")
-            return
-        panels = [p for p in self.app.panels.values() if p.enabled()]
-        if not panels:
-            messagebox.showinfo(APP_NAME, "켜진 채널이 없어요. ⚙ 설정에서 채널을 켜 주세요.")
-            return
-        if not dry_run:
-            what = {"reel": "릴스", "post": "게시물"}[only]
-            names = ", ".join(p.meta["name"] for p in panels)
-            if not messagebox.askyesno(APP_NAME, f"이 뉴스로 {what}을(를) 만들어 올릴까요?\n\n{story['title']}\n\n채널: {names}"):
-                return
-        for panel in panels:  # one channel at a time (round lock), each in its own language
-            panel.run_now(dry_run=dry_run, only=only, story=story)
-
-
 class App:
     def __init__(self, root, autostart=False, resume=()):
         self.root = root
@@ -596,13 +555,11 @@ class App:
         head = ttk.Frame(outer)
         head.pack(fill="x", pady=(0, 10))
         ttk.Label(head, text="📰 " + APP_NAME, style="Title.TLabel").pack(side="left")
-        ttk.Label(head, text="  같은 뉴스를 English · 한국어 · 日本語 로 각 계정에", foreground="#666").pack(side="left")
+        ttk.Label(head, text="  English · 한국어 · 日本語 — 각 나라 독자가 볼 뉴스를 각 계정에", foreground="#666").pack(side="left")
         ttk.Button(head, text="⚙ 설정", style="Accent.TButton", command=lambda: SettingsWindow(self)).pack(side="right")
         ttk.Label(head, text=f"버전 {app_version()}   ").pack(side="right")
         # fallback when the automatic update can't replace the .exe (e.g. no write permission)
         self.update_btn = ttk.Button(head, text="새 버전 받기", command=lambda: webbrowser.open(DOWNLOAD_URL))
-        self.trending = TrendingPanel(self, outer)
-        self.trending.frame.pack(fill="x", pady=(0, 8))
         body = ttk.Frame(outer)
         body.pack(fill="both", expand=True)
         body.rowconfigure(0, weight=1)
