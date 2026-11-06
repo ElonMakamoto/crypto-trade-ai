@@ -444,33 +444,43 @@ class ChannelPanel:
 
 # ---------------------------------------------------------------- main window
 class TrendingPanel:
-    """The 10 biggest world stories right now (in English); click one to make a preview, reel or post about it
-    on every enabled channel."""
+    """Top 10 stories right now for each channel's readers (US news in English, Korean news in Korean, Japanese
+    news in Japanese), one tab each. A channel's own buttons make the picked story for that channel; the menu
+    (double or right click) makes it on every enabled channel."""
 
     REFRESH_MS = 30 * 60 * 1000
 
     def __init__(self, app, parent):
-        self.app, self.stories, self.next_refresh = app, [], None
+        self.app, self.next_refresh = app, None
+        self.stories = {cid: [] for cid in config.CHANNELS}
+        self.lists = {}
         frame = self.frame = ttk.Frame(parent, padding=(10, 6), relief="groove")
         frame.columnconfigure(0, weight=1)
         head = ttk.Frame(frame)
-        head.grid(row=0, column=0, columnspan=3, sticky="ew")
-        ttk.Label(head, text="🔥 지금 뜨는 세계 뉴스 TOP 10", style="Channel.TLabel").pack(side="left")
-        ttk.Label(head, text="  뉴스를 고르고 채널의 🎬/🖼/👁 버튼 → 그 채널만 · 오른쪽 버튼(또는 더블클릭) → 켜진 채널 모두",
+        head.grid(row=0, column=0, columnspan=2, sticky="ew")
+        ttk.Label(head, text="🔥 지금 뜨는 뉴스 TOP 10", style="Channel.TLabel").pack(side="left")
+        ttk.Label(head, text="  고르고 채널의 🎬/🖼/👁 → 그 채널만 · 오른쪽 버튼(또는 더블클릭) → 켜진 채널 모두",
                   foreground="#666").pack(side="left")
         self.updated = tk.StringVar()
         ttk.Button(head, text="🔄 새로고침", command=self.refresh).pack(side="right")
-        ttk.Button(head, text="선택 해제", command=lambda: self.listbox.selection_clear(0, "end")).pack(
-            side="right", padx=(0, 6))
+        ttk.Button(head, text="선택 해제", command=self.clear).pack(side="right", padx=(0, 6))
         ttk.Label(head, textvariable=self.updated, foreground="#666").pack(side="right", padx=8)
-        self.listbox = tk.Listbox(frame, height=5, activestyle="none", exportselection=False,
-                                  font=("Segoe UI" if sys.platform == "win32" else "TkDefaultFont", 10))
-        self.listbox.grid(row=1, column=0, sticky="ew", pady=(6, 0))
-        bar = ttk.Scrollbar(frame, orient="vertical", command=self.listbox.yview)
-        bar.grid(row=1, column=1, sticky="ns", pady=(6, 0))
-        self.listbox.configure(yscrollcommand=bar.set)
+        self.tabs = ttk.Notebook(frame)
+        self.tabs.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        font = ("Malgun Gothic" if sys.platform == "win32" else "TkDefaultFont", 10)
+        for cid, meta in config.CHANNELS.items():
+            tab = ttk.Frame(self.tabs)
+            tab.columnconfigure(0, weight=1)
+            box = self.lists[cid] = tk.Listbox(tab, height=5, activestyle="none", exportselection=False, font=font)
+            box.grid(row=0, column=0, sticky="ew")
+            bar = ttk.Scrollbar(tab, orient="vertical", command=box.yview)
+            bar.grid(row=0, column=1, sticky="ns")
+            box.configure(yscrollcommand=bar.set)
+            box.bind("<Double-Button-1>", self.open_menu)
+            box.bind("<Button-3>", self.open_menu)
+            self.tabs.add(tab, text=f"  {meta['name']}  ")
         actions = ttk.Frame(frame)
-        actions.grid(row=1, column=2, sticky="n", padx=(10, 0), pady=(6, 0))
+        actions.grid(row=1, column=1, sticky="n", padx=(10, 0), pady=(28, 0))
         self.menu = tk.Menu(self.app.root, tearoff=False)
         for text, kw in [("👁 미리보기 만들기", {"dry_run": True}), ("🎬 릴스로 올리기", {"only": "reel"}),
                          ("🖼 게시물로 올리기", {"only": "post"})]:
@@ -478,8 +488,6 @@ class TrendingPanel:
             self.menu.add_command(label=text, command=lambda kw=kw: self.make(**kw))
         self.menu.add_separator()
         self.menu.add_command(label="취소")
-        self.listbox.bind("<Double-Button-1>", self.open_menu)
-        self.listbox.bind("<Button-3>", self.open_menu)
         self.refresh()
 
     def refresh(self):
@@ -487,32 +495,46 @@ class TrendingPanel:
         threading.Thread(target=self._load, daemon=True).start()
 
     def _load(self):
-        try:
-            stories = news.top_world(10)
-        except Exception as e:  # network trouble: keep the old list
-            print(f"[news] trending list failed: {e}")
-            stories = None
-        self.app.root.after(0, self._show, stories)
+        found = {}
+        for cid, meta in config.CHANNELS.items():
+            try:
+                found[cid] = news.top_world(10, *meta["news"])
+            except Exception as e:  # network trouble: keep that tab's old list
+                print(f"[news] trending list ({meta['name']}) failed: {e}")
+        self.app.root.after(0, self._show, found)
 
-    def _show(self, stories):
-        if stories is not None:
-            self.stories = stories
-            self.listbox.delete(0, "end")
+    def _show(self, found):
+        for cid, stories in found.items():
+            if not stories:
+                continue
+            self.stories[cid] = stories
+            box = self.lists[cid]
+            box.delete(0, "end")
             for i, s in enumerate(stories, 1):
-                self.listbox.insert("end", f"{i:>2}. {s['title']}" + (f"  — {s['source']}" if s.get("source") else ""))
-        self.updated.set(f"{datetime.now():%H:%M} 기준" if self.stories else "불러오지 못했어요 · 🔄 새로고침")
+                box.insert("end", f"{i:>2}. {s['title']}" + (f"  — {s['source']}" if s.get("source") else ""))
+        ok = any(self.stories.values())
+        self.updated.set(f"{datetime.now():%H:%M} 기준" if ok else "불러오지 못했어요 · 🔄 새로고침")
         if self.next_refresh:  # one automatic refresh pending at a time
             self.app.root.after_cancel(self.next_refresh)
         self.next_refresh = self.app.root.after(self.REFRESH_MS, self.refresh)
 
+    def _current(self):
+        return list(config.CHANNELS)[self.tabs.index(self.tabs.select())]
+
     def selected(self):
-        sel = self.listbox.curselection()
-        return self.stories[sel[0]] if sel and sel[0] < len(self.stories) else None
+        """The story picked in the tab that is showing, or None."""
+        cid = self._current()
+        sel = self.lists[cid].curselection()
+        return self.stories[cid][sel[0]] if sel and sel[0] < len(self.stories[cid]) else None
+
+    def clear(self):
+        for box in self.lists.values():
+            box.selection_clear(0, "end")
 
     def open_menu(self, event):
         if event.num == 3:  # right click: pick the row under the mouse first
-            self.listbox.selection_clear(0, "end")
-            self.listbox.selection_set(self.listbox.nearest(event.y))
+            event.widget.selection_clear(0, "end")
+            event.widget.selection_set(event.widget.nearest(event.y))
         if self.selected():
             self.menu.tk_popup(event.x_root, event.y_root)
 

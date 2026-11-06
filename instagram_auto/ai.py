@@ -18,7 +18,7 @@ For each pick return:
 - "highlight": 1-3 words from the headline to colour as the accent (exact substrings)
 - "caption": 2-3 short sentences in {lang} summarising the story + a question to drive comments, 1-2 emojis
 - "hashtags": 8-12 relevant hashtags (without spaces)
-- "image_query": 2-5 words to search a photo for this story (people/place names)
+- "image_query": 2-5 ENGLISH words to search a photo for this story (people/place names)
 - "reel_lines": 3 short lines in {lang} (max 8 words each) that tell the story beat by beat for a reel
 
 Respond with JSON only: {{"picks": [ ... ]}}
@@ -39,7 +39,7 @@ For each pick return:
 - "highlight": 1-3 words from the headline to colour as the accent (e.g. the disaster and the place)
 - "caption": 2-3 short factual sentences in {lang}
 - "hashtags": 5 hashtags without '#': the event name/place, the disaster type, naturaldisaster, news
-- "image_query": 2-5 words to find a photo of THIS disaster: disaster type + place (e.g. "Hurricane Melissa Jamaica")
+- "image_query": 2-5 ENGLISH words to find a photo of THIS disaster: disaster type + place (e.g. "Hurricane Melissa Jamaica")
 - "reel_lines": 3 short factual lines in {lang} (max 8 words each): what, where, impact
 
 Respond with JSON only: {{"picks": [ ... ]}}
@@ -48,11 +48,10 @@ STORIES:
 {stories}
 """
 
-WORLD_PROMPT = """You run a big Instagram world-news page in the bold visual style of @pubity, with a factual tone.
-From the stories below, pick the {n} BIGGEST stories the whole world is talking about right now: major world
-events, international politics and diplomacy, wars and peace talks, economy and markets moves that affect everyone,
-major natural disasters, landmark science/space/tech news, and the most famous people in the news. Prefer stories
-that matter to people in many countries; skip local, minor or niche stories, rumours, and duplicates of one event.
+WORLD_PROMPT = """You run a big Instagram news page in the bold visual style of @pubity, with a factual tone.
+Your followers: {audience}
+From the stories below, pick the {n} stories YOUR followers would most want to read and share right now.
+Skip minor or niche stories, rumours, and duplicates of one event.
 Tragedies are reported respectfully (no graphic detail, no jokes).
 
 For each pick return:
@@ -61,7 +60,7 @@ For each pick return:
 - "highlight": 1-3 words from the headline to colour as the accent (exact substrings)
 - "caption": 2-3 short factual sentences in {lang}
 - "hashtags": 5 hashtags without '#': the main names/places, the topic, worldnews, news
-- "image_query": 2-5 words to find a photo of THIS story (people/place names)
+- "image_query": 2-5 ENGLISH words to find a photo of THIS story (people/place names)
 - "reel_lines": 3 short factual lines in {lang} (max 8 words each)
 
 Respond with JSON only: {{"picks": [ ... ]}}
@@ -70,6 +69,23 @@ STORIES:
 {stories}
 """
 PROMPTS = {"disasters": DISASTER_PROMPT, "world": WORLD_PROMPT}
+
+# who each language channel writes for (the world news focus)
+AUDIENCE = {
+    "English": "English speakers in the US, UK and around the world. They follow the biggest world events, "
+               "international politics, wars and peace talks, economy and markets, major natural disasters, "
+               "landmark science, space and tech news, and the most famous people in the news.",
+    "Korean": "people in South Korea. They care most about Korea-related news (Korean society, economy, "
+              "Samsung/Hyundai/SK/LG and other Korean companies, K-pop and K-culture, Koreans abroad, North "
+              "Korea), new technology (AI, smartphones, chips, EVs, space), science, the economy and prices, "
+              "and big world events that affect Korea or everyone. NOT US domestic politics (US elections, "
+              "parties, Congress, White House drama) unless it directly affects Korea.",
+    "Japanese": "people in Japan. They care most about Japan-related news (Japanese society, economy, Toyota/"
+                "Sony/Nintendo and other Japanese companies, anime, games and culture, earthquakes and weather "
+                "in Japan, Japanese athletes), new technology (AI, robots, games, EVs, space), science, the "
+                "economy and prices, and big world events that affect Japan or everyone. NOT US domestic politics "
+                "(US elections, parties, Congress, White House drama) unless it directly affects Japan.",
+}
 
 
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
@@ -156,7 +172,7 @@ Write EVERYTHING below in {lang} (translate the facts from the article; keep nam
 3. "slides": {n} short carousel slides that tell the story step by step after the headline slide.
    Each: one or two punchy sentences in {lang}, max 22 words, only facts from the article text; if there are fewer
    facts, return fewer slides. For each slide give "highlight" (1-2 words to colour, exact substrings) and
-   "image_query" (2-5 words to search a DIFFERENT photo per slide: people, places or things in that slide).
+   "image_query" (2-5 ENGLISH words to search a DIFFERENT photo per slide: people, places or things in that slide).
    {slides_note}
 Respond with JSON only:
 {{"caption": "...", "hashtags": ["..."], "slides": [{{"text": "...", "highlight": ["..."], "image_query": "..."}}]}}
@@ -312,7 +328,8 @@ def pick_and_write(stories, n, skip_ids):
     listing = "\n".join(f'{s["id"]} | {s["topic"]} | {s["title"]} ({s["source"]})' for s in candidates)
     try:
         prompt = PROMPTS.get(config.NEWS_FOCUS, PROMPT)
-        data = _gemini(prompt.format(n=n, lang=config.POST_LANGUAGE, stories=listing))
+        data = _gemini(prompt.format(n=n, lang=config.POST_LANGUAGE, stories=listing,
+                                     audience=AUDIENCE.get(config.POST_LANGUAGE, AUDIENCE["English"])))
         by_id = {s["id"]: s for s in candidates}
         picks = [p for p in data.get("picks", []) if p.get("id") in by_id]
         if picks:

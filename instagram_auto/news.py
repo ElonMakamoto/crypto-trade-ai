@@ -17,8 +17,14 @@ WIKI_UA = {"User-Agent": "InstagramAuto/1.0 (https://chedlab.org/instagram) pyth
 TOPICS = ["WORLD", "ENTERTAINMENT", "SPORTS", "TECHNOLOGY", "SCIENCE"]
 
 
-def _rss_url(topic=None):
-    params = f"hl={config.NEWS_LANGUAGE}-{config.NEWS_COUNTRY}&gl={config.NEWS_COUNTRY}&ceid={config.NEWS_COUNTRY}:{config.NEWS_LANGUAGE}"
+def _edition(lang=None, country=None):
+    """Google News edition parameters; the active channel's edition unless one is given."""
+    lang, country = lang or config.NEWS_LANGUAGE, country or config.NEWS_COUNTRY
+    return f"hl={lang}-{country}&gl={country}&ceid={country}:{lang}"
+
+
+def _rss_url(topic=None, lang=None, country=None):
+    params = _edition(lang, country)
     if topic:
         return f"https://news.google.com/rss/headlines/section/topic/{topic}?{params}"
     return f"https://news.google.com/rss?{params}"
@@ -71,8 +77,8 @@ NOT_DISASTER = re.compile(
     r"Cyclones|Iowa State|stocks?|markets?|Nasdaq|Dow|S&P|shares|investors|crypto|bitcoin|election|polls?)\b", re.I)
 
 
-def _search_url(query):
-    params = f"hl={config.NEWS_LANGUAGE}-{config.NEWS_COUNTRY}&gl={config.NEWS_COUNTRY}&ceid={config.NEWS_COUNTRY}:{config.NEWS_LANGUAGE}"
+def _search_url(query, lang=None, country=None):
+    params = _edition(lang, country)
     return f"https://news.google.com/rss/search?q={quote(query + ' when:2d')}&{params}"
 
 
@@ -98,6 +104,15 @@ def _fetch_feeds(feeds, limit, keep=lambda s: True):
 
 # the big stories the whole world is talking about
 WORLD_TOPICS = ["WORLD", "BUSINESS", "SCIENCE", "TECHNOLOGY"]
+# Korean and Japanese readers: their own country's news first, then tech, economy, science and the world
+LOCAL_TOPICS = ["NATION", "TECHNOLOGY", "BUSINESS", "SCIENCE", "WORLD"]
+# the Korean and Japanese channels skip US domestic politics
+US_POLITICS = re.compile(r"트럼프|바이든|해리스|백악관|(?:미|美|미국)\s?(?:대선|공화당|민주당|하원|상원|의회)|"
+                         r"トランプ|バイデン|ハリス|ホワイトハウス|米(?:大統領選|共和党|民主党|議会|下院|上院)")
+
+
+def _local(stories):
+    return [s for s in stories if not US_POLITICS.search(s["title"])]
 
 
 def _is_disaster(story):
@@ -105,7 +120,8 @@ def _is_disaster(story):
 
 
 def _disasters(limit):
-    return _fetch_feeds([(t, _search_url(q)) for t, q in DISASTER_SEARCHES.items()], limit, _is_disaster)
+    # the searches and the disaster-word filter are English: always the US English edition
+    return _fetch_feeds([(t, _search_url(q, "en", "US")) for t, q in DISASTER_SEARCHES.items()], limit, _is_disaster)
 
 
 def fetch_trending(limit=40):
@@ -114,6 +130,11 @@ def fetch_trending(limit=40):
     if config.NEWS_FOCUS == "disasters":
         stories = _disasters(limit)
         print(f"[news] {len(stories)} natural disaster stories")
+        return stories
+    if config.NEWS_FOCUS == "world" and config.NEWS_LANGUAGE != "en":
+        # the Korean/Japanese channel: what people in that country are reading
+        stories = _local(_fetch_feeds([("TOP", _rss_url())] + [(t, _rss_url(t)) for t in LOCAL_TOPICS], limit))
+        print(f"[news] {len(stories)} stories from Google News {config.NEWS_COUNTRY}")
         return stories
     if config.NEWS_FOCUS == "world":
         stories = _fetch_feeds([("TOP", _rss_url())] + [(t, _rss_url(t)) for t in WORLD_TOPICS], limit)
@@ -125,24 +146,26 @@ def fetch_trending(limit=40):
     return _fetch_feeds([("TOP", _rss_url())] + [(t, _rss_url(t)) for t in TOPICS], limit)
 
 
-def top_world(n=10):
-    """The n biggest world stories right now, in Google News' own order (most important first)."""
+def top_world(n=10, lang="en", country="US"):
+    """The n biggest stories right now for one edition's readers, in Google News' own order (most important
+    first): top news and world news in English; top, national and tech news in Korean and Japanese."""
+    topics = ("TOP", "WORLD") if lang == "en" else ("TOP", "NATION", "TECHNOLOGY")
     feeds, seen = [], set()
-    for topic in ("TOP", "WORLD"):
+    for topic in topics:
         try:
-            r = requests.get(_rss_url(topic if topic != "TOP" else None), headers=UA, timeout=20)
+            r = requests.get(_rss_url(None if topic == "TOP" else topic, lang, country), headers=UA, timeout=20)
             r.raise_for_status()
             feeds.append([dict(s, topic=topic) for s in _parse(r.text)])
         except requests.RequestException as e:
-            print(f"[news] {topic} failed: {e}")
+            print(f"[news] {country} {topic} failed: {e}")
     stories = []
-    for pair in zip(*feeds) if len(feeds) == 2 else ([s] for s in (feeds[0] if feeds else [])):
-        for s in pair:  # alternate the two lists so both top news and world news show up
+    for row in zip(*feeds) if feeds else ():
+        for s in row:  # alternate the lists so each kind of news shows up
             key = re.sub(r"\W+", "", s["title"].lower())[:60]
             if key and key not in seen:
                 seen.add(key)
                 stories.append(dict(s, key=key))
-    return stories[:n]
+    return (stories if lang == "en" else _local(stories))[:n]
 
 
 def resolve_google_news(url):
@@ -155,7 +178,8 @@ def resolve_google_news(url):
         page = requests.get(f"https://news.google.com/articles/{art_id}", headers=UA, timeout=20).text
         sig = re.search(r'data-n-a-sg="([^"]+)"', page).group(1)
         ts = re.search(r'data-n-a-ts="([^"]+)"', page).group(1)
-        inner = ["garturlreq", [["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1, None, None, None,
+        locale = f"{config.NEWS_COUNTRY}:{config.NEWS_LANGUAGE}"
+        inner = ["garturlreq", [["X", "X", ["X", "X"], None, None, 1, 1, locale, None, 1, None, None, None,
                                  None, None, 0, 1], "X", "X", 1, [1, 1, 1], 1, 1, None, 0, 0, None, 0],
                  art_id, int(ts), sig]
         r = requests.post(
