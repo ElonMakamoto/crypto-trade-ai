@@ -139,8 +139,8 @@ def build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=True):
 
 
 def reel_timing(images):
-    """Seconds per slide in a reel: 3 for the cover, 4 for every other slide."""
-    return [(image, 3 if i == 0 else 4) for i, image in enumerate(images)]
+    """Seconds per slide in a reel: 4 for the cover, 5 for every other slide."""
+    return [(image, 4 if i == 0 else 5) for i, image in enumerate(images)]
 
 
 class Cancelled(Exception):
