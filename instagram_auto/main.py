@@ -171,6 +171,13 @@ def run_once(dry_run=False, poster=None, only=None, story=None, cancel=None):
     if story:
         stories, skip = [dict(story)], set()
         print(f"[main] chosen story: {story['title']}")
+    elif config.NEWS_FOCUS == "world":
+        # the channel's own top 10 (what its readers care about most), best first, not posted yet
+        ranked = ai.rank_trending(news.trending_pool(config.NEWS_LANGUAGE, config.NEWS_COUNTRY), config.POST_LANGUAGE)
+        stories = [s for s, _ in ranked if s["key"] not in state["posted"]][:len(kinds) + 3]
+        skip = set()
+        if stories:
+            print(f"[main] top story for {config.POST_LANGUAGE} readers: {stories[0]['title']}")
     else:
         stories, skip = news.fetch_trending(), set(state["posted"])
     if not stories:
@@ -182,6 +189,8 @@ def run_once(dry_run=False, poster=None, only=None, story=None, cancel=None):
     if not picks:
         print("[main] no new stories this round")
         return []
+    rank = {s["id"]: i for i, s in enumerate(stories)}
+    picks.sort(key=lambda p: rank.get(p["id"], len(rank)))  # keep the readers' order: most interesting first
     by_id = {s["id"]: s for s in stories}
 
     built = []
