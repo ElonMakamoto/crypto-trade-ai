@@ -222,6 +222,36 @@ def fact_slide(photo_path, text, highlight, index, total, out_path):
     return save_jpeg(img, out_path)
 
 
+def reel_panel(text, highlight, out_path, cover=False, index=None, total=None, size=(1080, 1920)):
+    """Transparent 9:16 overlay for a reel scene over stock video: the text on a black panel at the bottom,
+    like the post's cover (headline for the cover, the story sentence for the others)."""
+    W, H = size
+    top = 1120  # the video shows above this
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    fade = Image.linear_gradient("L").resize((W, 220))
+    img.paste((0, 0, 0, 255), (0, top - 220, W, top), fade)
+    img.paste((0, 0, 0, 255), (0, top, W, H))
+    box = (SIDE, top - 30, W - SIDE, 1620)  # Instagram's own caption covers the bottom of a reel
+    if cover:
+        draw_headline(img, box, text, highlight)
+    else:
+        draw = ImageDraw.Draw(img)
+        tokens = _tokens(text)
+        for fsize in range(58, 27, -4):
+            font = _tfont(fsize)
+            lines = _wrap(draw, tokens, font, box[2] - box[0])
+            line_h = int(fsize * 1.35)
+            if line_h * len(lines) <= box[3] - box[1]:
+                break
+        y = box[1] + ((box[3] - box[1]) - line_h * len(lines)) // 2
+        _draw_lines(draw, lines, font, box[0], box[2], y, line_h, _hot(text, highlight))
+        if index and total:
+            _counter(img, index, total)
+    draw_brand(img, (W // 2, 1670))
+    img.save(out_path, "PNG")
+    return out_path
+
+
 def question_slide(photo_path, out_path, index, total):
     """Engagement slide used when a story has nothing more to tell: keeps carousels at 3+ slides."""
     W, H = 1080, 1350
