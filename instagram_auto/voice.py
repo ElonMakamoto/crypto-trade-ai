@@ -94,6 +94,7 @@ def _split(samples, n):
 
 def _clean(text):
     """What the anchor says: no emoji or hashtags, and normal case (ALL-CAPS English gets spelled out)."""
+    text = re.sub(r"【[^】]*】", "", text)  # 【速報】-style tags are for the eye, not read out
     text = re.sub(r"\s+", " ", re.sub(r"#\w+|[\U0001F000-\U0001FAFF☀-➿️]", "", text)).strip()
     return text[:1] + text[1:].lower() if text.isupper() else text
 
