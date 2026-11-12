@@ -27,7 +27,7 @@ except ImportError:
     pass
 
 # Saved by the desktop app; secrets are stored encrypted
-SECRET_KEYS = {"GOOGLE_API_KEY", "IG_PASSWORD", "IG_ACCESS_TOKEN"}
+SECRET_KEYS = {"GOOGLE_API_KEY", "IG_PASSWORD", "IG_ACCESS_TOKEN", "PEXELS_API_KEY"}
 DEFAULTS = {
     "GOOGLE_API_KEY": "",
     "GEMINI_MODEL": "gemini-2.5-flash",
@@ -58,6 +58,10 @@ DEFAULTS = {
     "INTERVAL_HOURS": "5",  # used by the command-line --loop only
     "REEL_SECONDS": "8",
     "MUSIC_DIR": "",
+    # "on" = a natural AI voice (Gemini text-to-speech) reads a spoken script over the reel, "off" = music only
+    "VOICE": "on",
+    # optional free Pexels key: reel scenes play a matching stock video instead of the still photo
+    "PEXELS_API_KEY": "",
 }
 
 

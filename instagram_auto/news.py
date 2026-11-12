@@ -344,6 +344,52 @@ def _fetch(url, dest):
         return img.width * img.height
 
 
+PEXELS_VIDEOS = "https://api.pexels.com/videos/search"
+
+
+def stock_video(query, dest, used=None):
+    """A free stock clip (Pexels) matching the query, saved as mp4; None without a key or when nothing fits.
+    Tries the whole query, then shorter versions of it; skips clips in `used` (ids) so scenes differ."""
+    if not config.PEXELS_API_KEY or not query:
+        return None
+    used = used if used is not None else set()
+    words = query.split()
+    tries = list(dict.fromkeys([query, " ".join(words[-2:]), words[0]]))
+    for q in tries:
+        for orientation in ("portrait", None):
+            params = {"query": q, "per_page": 8, **({"orientation": orientation} if orientation else {})}
+            try:
+                r = requests.get(PEXELS_VIDEOS, headers={"Authorization": config.PEXELS_API_KEY}, params=params,
+                                 timeout=20)
+                r.raise_for_status()
+                videos = r.json().get("videos", [])
+            except (requests.RequestException, ValueError) as e:
+                print(f"[news] stock video search failed ({e})")
+                return None
+            for video in videos:
+                if video.get("id") in used or (video.get("duration") or 0) < 3:
+                    continue
+                files = [f for f in video.get("video_files", []) if f.get("file_type") == "video/mp4" and f.get("link")]
+                sharp = [f for f in files if min(f.get("width") or 0, f.get("height") or 0) >= 1080]
+                if not (sharp or files):
+                    continue
+                # the smallest file that is still full HD (or the biggest there is)
+                best = (min(sharp, key=lambda f: (f.get("width") or 0) * (f.get("height") or 0)) if sharp
+                        else max(files, key=lambda f: (f.get("width") or 0) * (f.get("height") or 0)))
+                try:
+                    with requests.get(best["link"], headers=UA, timeout=60, stream=True) as d:
+                        d.raise_for_status()
+                        with open(dest, "wb") as out:
+                            for chunk in d.iter_content(1 << 16):
+                                out.write(chunk)
+                except requests.RequestException as e:
+                    print(f"[news] stock video download failed ({e})")
+                    continue
+                used.add(video.get("id"))
+                return dest
+    return None
+
+
 def download_image(url, dest):
     """Download a photo, taking a higher-resolution version of it when the site has one."""
     best = _fetch(url, dest)

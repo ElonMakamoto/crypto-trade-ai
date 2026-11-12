@@ -16,6 +16,7 @@ import config
 import l10n
 import news
 import reel
+import voice
 import render
 
 MAX_FACT_SLIDES = 4  # cover + up to 4 fact slides + follow slide = 3-6 images
@@ -138,6 +139,14 @@ def build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=True):
     return images
 
 
+def narration(pick, details):
+    """What each reel scene is about, in the same order as build_album's images (the script is written from it)."""
+    lines = [pick["headline"]] + [sl["text"] for sl in details["slides"]]
+    if not details["slides"]:
+        lines.append(" ".join(l10n.t("question_")))
+    return lines + [l10n.t("follow_line_", handle="")]
+
+
 def reel_timing(images):
     """Seconds per slide in a reel: 4 for the cover, 5 for every other slide."""
     return [(image, 4 if i == 0 else 5) for i, image in enumerate(images)]
@@ -145,6 +154,27 @@ def reel_timing(images):
 
 class Cancelled(Exception):
     """The user pressed cancel: the round stops at the next step, before anything is uploaded."""
+
+
+def stock_video_scenes(scenes, pick, details, workdir):
+    """The cover and the story slides play a matching free stock video (Pexels) with their text on a black panel
+    below, like the post's cover; a scene with no clip found (and the closing slides) stays the still slide."""
+    texts = [(pick["headline"], pick.get("highlight"), True)] + [
+        (sl["text"], sl.get("highlight"), False) for sl in details["slides"]]
+    queries = [pick.get("image_query")] + [sl.get("image_query") for sl in details["slides"]]
+    used, out = set(), []
+    for i, (image, seconds) in enumerate(scenes):
+        clip = None
+        if i < len(texts) and queries[i]:
+            video = news.stock_video(queries[i], workdir / f"clip{i}.mp4", used)
+            if video:
+                text, highlight, cover = texts[i]
+                panel = render.reel_panel(text, highlight, workdir / f"panel{i}.png", cover=cover,
+                                          index=i + 1, total=len(scenes))
+                clip = (video, panel)
+        out.append((image, seconds, clip))
+    print(f"[main] reel: {sum(1 for s in out if s[2])} of {len(out)} scenes on stock video")
+    return out
 
 
 def run_once(dry_run=False, poster=None, only=None, story=None, cancel=None):
@@ -221,7 +251,15 @@ def run_once(dry_run=False, poster=None, only=None, story=None, cancel=None):
         check()
         cover_img = media[0]
         if kind == "reel":
-            media = [reel.slideshow(reel_timing(media), workdir / f"reel-{stamp}.mp4", workdir)]
+            scenes = reel_timing(media)
+            if config.PEXELS_API_KEY:
+                scenes = stock_video_scenes(scenes, pick, details, workdir)
+            voices = None
+            lines = narration(pick, details)
+            if config.VOICE == "on" and len(lines) == len(scenes):
+                lines = ai.write_script(lines) or lines  # a spoken script, not the slide text read out
+                voices = voice.narrate(lines, workdir)
+            media = [reel.slideshow(scenes, workdir / f"reel-{stamp}.mp4", workdir, voices)]
             cover_img = reel.extract_cover(media[0], workdir / f"reel-{stamp}.jpg")
         print(f"[main] {kind} ({len(media)} file{'s' if len(media) > 1 else ''}): {pick['headline']}")
         built.append((kind, pick, story, media, caption, cover_img))
