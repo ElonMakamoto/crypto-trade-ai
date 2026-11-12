@@ -813,6 +813,10 @@ def run():
     if "--resume-auto" in sys.argv:  # older builds restart with a bare flag: resume English
         resume = ["en"]
     root = tk.Tk()
+    try:  # the window and taskbar show the app icon too, not only the .exe
+        root.iconphoto(True, tk.PhotoImage(file=str(config.BASE_DIR / "icon.png")))
+    except tk.TclError:
+        pass
     App(root, autostart="--autostart" in sys.argv, resume=resume)
     root.mainloop()
 
