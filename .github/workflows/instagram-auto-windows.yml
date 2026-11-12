@@ -48,7 +48,7 @@ jobs:
       - name: Build InstagramAuto.exe
         run: >
           pyinstaller --noconfirm --onefile --windowed --name InstagramAuto --icon icon.ico
-          --add-data "fonts;fonts" --add-data "version.txt;." --add-data "icon.png;."
+          --add-data "fonts;fonts" --add-data "version.txt;." --add-data "icon.png;." --add-data "icon.ico;."
           --collect-all imageio_ffmpeg --collect-all curl_cffi --collect-all tzdata --collect-submodules instagrapi
           app.py
 
