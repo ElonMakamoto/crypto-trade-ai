@@ -216,7 +216,14 @@ TOPIC_TAGS = {
 
 
 def _sentences(text):
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if 40 <= len(s.strip()) <= 180]
+    """Whole sentences of a fitting length; Japanese/Chinese end on 。！？ with no space after them."""
+    out = []
+    for s in re.split(r"(?<=[.!?])\s+|(?<=[。！？])", text):
+        s = s.strip()
+        cjk = len(re.findall(r"[\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af]", s)) > len(s) / 3
+        if (12 if cjk else 40) <= len(s) <= (110 if cjk else 180):
+            out.append(s)
+    return out
 
 
 def _fallback_details(pick, story, article_text, n):
@@ -271,15 +278,22 @@ def write_details(pick, story, article_text, n_slides=4):
                     more = [sl for sl in again.get("slides", []) if sl.get("text")][:n_slides]
                     if len(more) > len(data["slides"]):
                         data["slides"] = more
-                if n_slides >= MIN_SLIDES and len(data["slides"]) < MIN_SLIDES:
-                    have = {sl["text"] for sl in data["slides"]}
-                    extra = [sl for sl in _fallback_details(pick, story, article_text, n_slides)["slides"]
-                             if sl["text"] not in have]
-                    data["slides"] += extra[:MIN_SLIDES - len(data["slides"])]
-                return data
+                return _top_up(data, pick, story, article_text, n_slides)
         except (requests.RequestException, KeyError, ValueError) as e:
             print(f"[ai] details failed ({e}) — using article sentences")
-    return _fallback_details(pick, story, article_text, n_slides)
+    return _top_up(_fallback_details(pick, story, article_text, n_slides), pick, story, article_text, n_slides)
+
+
+def _top_up(data, pick, story, article_text, n_slides):
+    """At least MIN_SLIDES fact slides (5+ images in a post): add the article's own sentences and other outlets'
+    headlines, then the story's title, until there are enough."""
+    if n_slides < MIN_SLIDES or len(data["slides"]) >= MIN_SLIDES:
+        return data
+    have = {sl["text"] for sl in data["slides"]}
+    extra = [sl for sl in _fallback_details(pick, story, article_text, n_slides + 3)["slides"] if sl["text"] not in have]
+    data["slides"] += extra[:MIN_SLIDES - len(data["slides"])]
+    print(f"[ai] topped up to {len(data['slides'])} fact slides")
+    return data
 
 
 RANK_PROMPT = """Your readers: {audience}
