@@ -121,20 +121,23 @@ def gather_photos(story, ctx, queries, needed, workdir, tag, cover=None, cover_u
 
 
 def build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=True):
-    """Cover + 2-4 fact slides (each with its own photo) + follow slide = 3-6 images."""
+    """Cover + 3-4 fact slides (each with its own photo) + follow slide = 5-6 images; with fewer facts a comment
+    slide is added."""
     slides = details["slides"]
     queries = [sl.get("image_query", "") for sl in slides] + [pick.get("image_query", ""), story["title"]]
     photos = gather_photos(story, ctx, queries, 1 + len(slides), workdir, "post", *cover)
-    # nothing more to tell than the headline: a comment slide keeps the carousel at 3 slides
-    total = max(len(slides), 1) + 2
+    # too little to tell: a comment slide fills the carousel up
+    ask = len(slides) < ai.MIN_SLIDES
+    total = len(slides) + ask + 2
     images = [render.feed_post(photos[0], pick["headline"], pick.get("highlight"),
                                workdir / f"post-{stamp}-1.jpg", swipe=swipe)]
     for i, (slide, photo) in enumerate(zip(slides, photos[1:]), start=2):
         images.append(render.fact_slide(photo, slide["text"], slide.get("highlight"), i, total,
                                         workdir / f"post-{stamp}-{i}.jpg"))
-    if not slides:
-        print("[main] no story details found — adding a comment slide")
-        images.append(render.question_slide(photos[0], workdir / f"post-{stamp}-2.jpg", 2, total))
+    if ask:
+        print(f"[main] only {len(slides)} fact slides — adding a comment slide")
+        n = len(images) + 1
+        images.append(render.question_slide(photos[0], workdir / f"post-{stamp}-{n}.jpg", n, total))
     images.append(render.cta_slide(workdir / f"post-{stamp}-{total}.jpg", total, total))
     return images
 
@@ -142,7 +145,7 @@ def build_album(pick, story, ctx, details, cover, workdir, stamp, swipe=True):
 def narration(pick, details):
     """What each reel scene is about, in the same order as build_album's images (the script is written from it)."""
     lines = [pick["headline"]] + [sl["text"] for sl in details["slides"]]
-    if not details["slides"]:
+    if len(details["slides"]) < ai.MIN_SLIDES:
         lines.append(" ".join(l10n.t("question_")))
     return lines + [l10n.t("follow_line_", handle="")]
 

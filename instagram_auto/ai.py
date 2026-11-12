@@ -1,6 +1,7 @@
 """Gemini (Google AI API key) picks the most viral stories and writes Pubity-style copy."""
 import json
 import re
+import time
 
 import requests
 
@@ -148,6 +149,19 @@ def _gemini(prompt):
     if r.status_code == 404:
         # configured model no longer exists: switch to a current one and remember it
         r = _generate(_switch_model(False, "is not available"), prompt)
+    for wait in (4, 12):
+        if r.status_code not in (429, 500, 503):
+            break
+        # busy ("high demand"): wait a little and ask again
+        print(f"[ai] Gemini is busy (HTTP {r.status_code}) — retrying in {wait} s")
+        time.sleep(wait)
+        r = _generate(model, prompt)
+    if r.status_code in (429, 500, 503):
+        # still busy: this one request goes to another Flash model (the setting stays as it is)
+        other = _available_flash_model(fast="lite" not in model)
+        if other and other != model:
+            print(f"[ai] {model} is still busy — asking {other} this time")
+            r = _generate(other, prompt)
     if not r.ok:
         try:
             detail = r.json()["error"]["message"]
@@ -202,7 +216,14 @@ TOPIC_TAGS = {
 
 
 def _sentences(text):
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if 40 <= len(s.strip()) <= 180]
+    """Whole sentences of a fitting length; Japanese/Chinese end on 。！？ with no space after them."""
+    out = []
+    for s in re.split(r"(?<=[.!?])\s+|(?<=[。！？])", text):
+        s = s.strip()
+        cjk = len(re.findall(r"[\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af]", s)) > len(s) / 3
+        if (12 if cjk else 40) <= len(s) <= (110 if cjk else 180):
+            out.append(s)
+    return out
 
 
 def _fallback_details(pick, story, article_text, n):
@@ -257,15 +278,22 @@ def write_details(pick, story, article_text, n_slides=4):
                     more = [sl for sl in again.get("slides", []) if sl.get("text")][:n_slides]
                     if len(more) > len(data["slides"]):
                         data["slides"] = more
-                if n_slides >= MIN_SLIDES and len(data["slides"]) < MIN_SLIDES:
-                    have = {sl["text"] for sl in data["slides"]}
-                    extra = [sl for sl in _fallback_details(pick, story, article_text, n_slides)["slides"]
-                             if sl["text"] not in have]
-                    data["slides"] += extra[:MIN_SLIDES - len(data["slides"])]
-                return data
+                return _top_up(data, pick, story, article_text, n_slides)
         except (requests.RequestException, KeyError, ValueError) as e:
             print(f"[ai] details failed ({e}) — using article sentences")
-    return _fallback_details(pick, story, article_text, n_slides)
+    return _top_up(_fallback_details(pick, story, article_text, n_slides), pick, story, article_text, n_slides)
+
+
+def _top_up(data, pick, story, article_text, n_slides):
+    """At least MIN_SLIDES fact slides (5+ images in a post): add the article's own sentences and other outlets'
+    headlines, then the story's title, until there are enough."""
+    if n_slides < MIN_SLIDES or len(data["slides"]) >= MIN_SLIDES:
+        return data
+    have = {sl["text"] for sl in data["slides"]}
+    extra = [sl for sl in _fallback_details(pick, story, article_text, n_slides + 3)["slides"] if sl["text"] not in have]
+    data["slides"] += extra[:MIN_SLIDES - len(data["slides"])]
+    print(f"[ai] topped up to {len(data['slides'])} fact slides")
+    return data
 
 
 RANK_PROMPT = """Your readers: {audience}

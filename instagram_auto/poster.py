@@ -236,27 +236,34 @@ class GraphPoster:
     def _public_url(self, path):
         return f"{config.PUBLIC_MEDIA_BASE_URL}/{path.name}" if config.PUBLIC_MEDIA_BASE_URL else None
 
-    def _video_container(self, path, **fields):
+    def _video_container(self, path, chunk=0, **fields):
         """Container for a video: by public video_url if we have one, else resumable upload of the local file."""
         url = self._public_url(path)
         if url:
             return self._post(f"{self.user_id}/media", video_url=url, **fields)["id"]
         container = self._post(f"{self.user_id}/media", upload_type="resumable", **fields)
         data = path.read_bytes()
-        print(f"[poster] uploading {path.name} ({len(data) / 1e6:.1f} MB)")
+        import reel
+
+        print(f"[poster] uploading {path.name} ({len(data) / 1e6:.1f} MB; {reel.describe(path)})"
+              + (f" in {chunk // 1_000_000} MB parts" if chunk else ""))
+        headers = {"Authorization": f"OAuth {config.IG_ACCESS_TOKEN}", "file_size": str(len(data))}
         try:
-            self._request("POST", container["uri"], timeout=300, data=data, headers={
-                "Authorization": f"OAuth {config.IG_ACCESS_TOKEN}", "offset": "0", "file_size": str(len(data)),
-                "Content-Type": "application/octet-stream"})
+            for offset in range(0, len(data), chunk or len(data)):
+                end = offset + chunk if chunk else len(data)
+                self._request("POST", container["uri"], timeout=300, data=data[offset:end],
+                              headers={**headers, "offset": str(offset)})
         except MetaAPIError as e:
             print(f"[poster] upload answer: {e}")
-            # Meta sometimes keeps the video anyway: give it 2 minutes, then (still "in progress") count it as refused
-            try:
-                self._wait_until_ready(container["id"], minutes=2)
-                print("[poster] Meta processed the video after all")
-                return container["id"]
-            except (ProcessingStuck, RuntimeError):
-                raise UploadRefused(str(e)) from None
+            if '"retriable":false' not in str(e).replace(" ", ""):
+                # Meta sometimes keeps the video anyway: give it 2 minutes before counting it as refused
+                try:
+                    self._wait_until_ready(container["id"], minutes=2)
+                    print("[poster] Meta processed the video after all")
+                    return container["id"]
+                except RuntimeError:
+                    pass
+            raise UploadRefused(str(e)) from None
         return container["id"]
 
     def post_image(self, path, caption):
@@ -273,11 +280,18 @@ class GraphPoster:
         try:
             return self._publish(self._video_container(path, **fields))
         except (UploadRefused, ProcessingStuck) as e:
-            # Meta could not take this file: once more, in a new container, with a plainer encode of the same video
-            import reel
+            print(f"[poster] Meta could not process the video ({e})")
+        import reel
 
-            print(f"[poster] Meta could not process the video ({e}) — re-encoding it in a basic format and retrying")
-            return self._publish(self._video_container(reel.instagram_safe(path), **fields))
+        # 2nd try: a plain 720p encode, sent in 4 MB parts, in a new container
+        print("[poster] retry 1/2: plain 720p encode, uploaded in parts")
+        try:
+            return self._publish(self._video_container(reel.instagram_safe(path), chunk=4_000_000, **fields))
+        except (UploadRefused, ProcessingStuck) as e:
+            print(f"[poster] still refused ({e})")
+        # 3rd try: the same picture with a plain silent sound track: if this one goes through, the sound was the problem
+        print("[poster] retry 2/2: same video with a silent sound track")
+        return self._publish(self._video_container(reel.instagram_safe(path, silent=True), chunk=4_000_000, **fields))
 
     def post_album(self, paths, caption):
         """A carousel of the slide images (or a single post for one image)."""

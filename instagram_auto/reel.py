@@ -90,17 +90,40 @@ def slideshow(slides, out_path, workdir, voices=None):
     return out_path
 
 
-def instagram_safe(video_path):
+def instagram_safe(video_path, silent=False):
     """A much plainer re-encode for when Meta can't process a reel: 720x1280, main profile, CRF 22, SDR BT.709
-    colour, 44.1 kHz AAC, constant 30 fps."""
-    out = video_path.with_name(video_path.stem + "-safe.mp4")
-    _run([ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(video_path),
+    colour, 44.1 kHz AAC, constant 30 fps. silent: a plain silent stereo track instead of the reel's sound."""
+    out = video_path.with_name(video_path.stem + ("-silent" if silent else "-safe") + ".mp4")
+    sound = (["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100", "-map", "0:v:0", "-map", "1:a:0",
+              "-shortest"] if silent else [])
+    _run([ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(video_path), *sound,
           "-vf", f"scale=720:1280:flags=lanczos,fps={FPS},format=yuv420p", *BT709,
           "-c:v", "libx264", "-preset", "medium", "-profile:v", "main", "-level", "4.0", "-crf", "22",
           "-maxrate", "4M", "-bufsize", "8M", "-g", str(FPS * 2), "-fps_mode", "cfr",
           "-c:a", "aac", "-ar", "44100", "-ac", "2", "-b:a", "128k", "-map_metadata", "-1",
           "-movflags", "+faststart", str(out)])
     return out
+
+
+def describe(video_path):
+    """'1080x1920 h264 30fps, aac 48000 Hz stereo, 42.0 s' — for the upload log."""
+    try:
+        info = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(video_path)], capture_output=True, text=True,
+                              creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0).stderr
+    except OSError:
+        return "?"
+    import re
+
+    dur = re.search(r"Duration: (\d+):(\d+):([\d.]+)", info)
+    video = re.search(r"Video: (\w+).*?(\d{3,4}x\d{3,4}).*?([\d.]+) fps", info)
+    audio = re.search(r"Audio: (\w+).*?(\d+) Hz, (\w+)", info)
+    parts = []
+    if video:
+        parts.append(f"{video[2]} {video[1]} {video[3]}fps")
+    parts.append(f"{audio[1]} {audio[2]} Hz {audio[3]}" if audio else "no audio")
+    if dur:
+        parts.append(f"{int(dur[1]) * 3600 + int(dur[2]) * 60 + float(dur[3]):.1f} s")
+    return ", ".join(parts)
 
 
 def still_video(image_path, out_path, seconds=6):
