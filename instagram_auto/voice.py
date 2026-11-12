@@ -74,7 +74,10 @@ def _split(samples, n):
     voiced = [i for i, q in enumerate(quiet) if not q]
     if not voiced:
         return None
-    first, last = voiced[0], voiced[-1]
+    # speech starts / ends where at least 3 frames (60 ms) in a row are voiced: a lone click or crackle is skipped
+    steady = [i for i in voiced if all(0 <= j < len(quiet) and not quiet[j] for j in (i, i + 1, i + 2))] or voiced
+    first = steady[0]
+    last = max(i for i in voiced if i <= max(j + 2 for j in steady))
     gaps, start = [], None  # silent runs between the first and last voiced frame
     for i in range(first, last + 1):
         if quiet[i] and start is None:
@@ -120,9 +123,11 @@ def narrate(lines, workdir):
             w.setsampwidth(2)
             w.setframerate(RATE)
             w.writeframes(samples[a:b].tobytes())
-        # faster without raising the pitch
-        reel._run([reel.ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(raw), "-filter:a", f"atempo={SPEED}",
-                   str(path)])
-        clips[i] = (path, (b - a) / RATE / SPEED)
+        seconds = (b - a) / RATE / SPEED
+        # faster without raising the pitch; no rumble or hiss, and short fades so a cut never clicks
+        reel._run([reel.ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(raw), "-filter:a",
+                   f"atempo={SPEED},highpass=f=80,lowpass=f=11000,afftdn=nf=-30,"
+                   f"afade=t=in:d=0.04,afade=t=out:st={max(seconds - 0.08, 0):.3f}:d=0.08", str(path)])
+        clips[i] = (path, seconds)
     print(f"[voice] narrated {len(spoken)} slides ({VOICE_NAME}, {_tts_model()})")
     return clips

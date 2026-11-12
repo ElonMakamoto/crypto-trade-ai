@@ -170,8 +170,8 @@ Write EVERYTHING below in {lang} (translate the facts from the article; keep nam
    events), then 2 broader topic ones (e.g. news, worldnews, sports). Write them the way {lang}-speaking
    Instagram users search (e.g. 자연재해 for Korean, 自然災害 for Japanese). No spaces inside a hashtag.
 3. "slides": {n} short carousel slides that tell the story step by step after the headline slide.
-   Each: one or two punchy sentences in {lang}, max 22 words, only facts from the article text; if there are fewer
-   facts, return fewer slides. For each slide give "highlight" (1-2 words to colour, exact substrings) and
+   Each: one or two punchy sentences in {lang}, max 22 words, only facts from the text above. Always write {n}
+   slides: if the article is short, cover who is involved, where and when, why it matters and what happens next. For each slide give "highlight" (1-2 words to colour, exact substrings) and
    "image_query" (2-5 ENGLISH words to search a DIFFERENT photo per slide: people, places or things in that slide).
    {slides_note}
 Respond with JSON only:
@@ -230,6 +230,9 @@ def _fallback_details(pick, story, article_text, n):
     }
 
 
+MIN_SLIDES = 3  # fact slides in a full post: cover + 3 + follow slide = at least 5 images
+
+
 def write_details(pick, story, article_text, n_slides=4):
     """Detailed caption, hashtags and (for carousels) fact slides — written only from the article text."""
     if config.GOOGLE_API_KEY and len(article_text) <= 200 and config.POST_LANGUAGE != "English":
@@ -244,6 +247,21 @@ def write_details(pick, story, article_text, n_slides=4):
                                                  slides_note=note, lang=config.POST_LANGUAGE))
             if data.get("caption"):
                 data["slides"] = [sl for sl in data.get("slides", []) if sl.get("text")][:n_slides]
+                if n_slides >= MIN_SLIDES and len(data["slides"]) < MIN_SLIDES:
+                    # too few for a full post (cover + 3 + follow = 5 images): ask once more, then top up
+                    print(f"[ai] only {len(data['slides'])} slides — asking for {n_slides} again")
+                    again = _gemini(DETAILS_PROMPT.format(
+                        headline=pick["headline"], text=article_text[:4000], n=n_slides,
+                        caption_guide=CAPTION_GUIDE[config.NEWS_FOCUS == "disasters"],
+                        slides_note=f"You MUST return exactly {n_slides} slides.", lang=config.POST_LANGUAGE))
+                    more = [sl for sl in again.get("slides", []) if sl.get("text")][:n_slides]
+                    if len(more) > len(data["slides"]):
+                        data["slides"] = more
+                if n_slides >= MIN_SLIDES and len(data["slides"]) < MIN_SLIDES:
+                    have = {sl["text"] for sl in data["slides"]}
+                    extra = [sl for sl in _fallback_details(pick, story, article_text, n_slides)["slides"]
+                             if sl["text"] not in have]
+                    data["slides"] += extra[:MIN_SLIDES - len(data["slides"])]
                 return data
         except (requests.RequestException, KeyError, ValueError) as e:
             print(f"[ai] details failed ({e}) — using article sentences")

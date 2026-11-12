@@ -11,6 +11,8 @@ FPS = 30
 # Instagram's Reels spec: H.264 4:2:0, closed GOP, keyframe every 2 s; AAC at most 48 kHz and 128 kbps
 IG_VIDEO = ["-c:v", "libx264", "-preset", "slow", "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p",
             "-r", str(FPS), "-g", str(FPS * 2), "-maxrate", "12M", "-bufsize", "24M"]
+# stock clips can be HDR / wide-gamut: always tag (and convert to) plain SDR BT.709
+BT709 = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"]
 IG_AUDIO = ["-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k"]
 
 
@@ -43,7 +45,7 @@ def slideshow(slides, out_path, workdir, voices=None):
             inputs += ["-stream_loop", "-1", "-t", str(seconds), "-i", str(video),
                        "-loop", "1", "-framerate", str(FPS), "-t", str(seconds), "-i", str(overlay)]
             chain.append(f"[{n}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
-                         f"fps={FPS},setsar=1,format=yuv420p[bg{i}]")
+                         f"fps={FPS},setsar=1,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[bg{i}]")
             chain.append(f"[bg{i}][{n + 1}:v]overlay=0:0:shortest=1,setsar=1,format=yuv420p[s{i}]")
             n += 2
         else:
@@ -70,30 +72,33 @@ def slideshow(slides, out_path, workdir, voices=None):
             inputs += ["-i", str(clip[0])]
             delay = int((start + lead) * 1000)
             chain.append(f"[{n}:a]aresample=44100,aformat=channel_layouts=stereo,"
-                         f"adelay={delay}|{delay},volume=1.6[v{i}]")
+                         f"adelay={delay}|{delay}[v{i}]")
             mix.append(f"[v{i}]")
             n += 1
         start += seconds
-    chain.append(f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:normalize=0,"
-                 f"afade=t=out:st={max(total - 1, 0)}:d=1[aout]")
+    # soft start and end, and a limiter so voice + music never clip (clipping is the crackle you hear)
+    chain.append(f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:normalize=0,alimiter=limit=0.89,"
+                 f"afade=t=in:d=0.4,afade=t=out:st={max(total - 1, 0)}:d=1[aout]")
 
     _run([
         ffmpeg_exe(), "-y", "-loglevel", "error", *inputs,
         "-filter_complex", ";".join(chain),
         "-map", "[vout]", "-map", "[aout]", "-t", str(total),
-        *IG_VIDEO, "-crf", "18" if moving else "17", *([] if moving else ["-tune", "stillimage"]), *IG_AUDIO,
-        "-movflags", "+faststart", str(out_path),
+        *IG_VIDEO, *BT709, "-crf", "18" if moving else "17", *([] if moving else ["-tune", "stillimage"]),
+        *IG_AUDIO, "-map_metadata", "-1", "-movflags", "+faststart", str(out_path),
     ])
     return out_path
 
 
 def instagram_safe(video_path):
-    """A plainer re-encode for when Meta can't process a reel: the same settings as the still videos that
-    upload fine (x264 defaults, CRF 21, 44.1 kHz AAC), with the bitrate capped."""
+    """A much plainer re-encode for when Meta can't process a reel: 720x1280, main profile, CRF 22, SDR BT.709
+    colour, 44.1 kHz AAC, constant 30 fps."""
     out = video_path.with_name(video_path.stem + "-safe.mp4")
     _run([ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(video_path),
-          "-c:v", "libx264", "-preset", "medium", "-crf", "21", "-maxrate", "6M", "-bufsize", "12M",
-          "-pix_fmt", "yuv420p", "-r", str(FPS), "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
+          "-vf", f"scale=720:1280:flags=lanczos,fps={FPS},format=yuv420p", *BT709,
+          "-c:v", "libx264", "-preset", "medium", "-profile:v", "main", "-level", "4.0", "-crf", "22",
+          "-maxrate", "4M", "-bufsize", "8M", "-g", str(FPS * 2), "-fps_mode", "cfr",
+          "-c:a", "aac", "-ar", "44100", "-ac", "2", "-b:a", "128k", "-map_metadata", "-1",
           "-movflags", "+faststart", str(out)])
     return out
 

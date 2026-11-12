@@ -75,6 +75,14 @@ class MetaAPIError(RuntimeError):
         super().__init__(mask(text))
 
 
+class UploadRefused(RuntimeError):
+    """Meta's upload server refused the video file (e.g. ProcessingFailedError)."""
+
+
+class ProcessingStuck(RuntimeError):
+    """Meta took the upload but never finished (or failed) processing it."""
+
+
 class GraphPoster:
     """Official Instagram API (Professional account), chosen by the token's prefix:
 
@@ -208,15 +216,18 @@ class GraphPoster:
                 config.remember("CHANNEL_TOKEN", data["access_token"])
             print("[poster] access token refreshed")
 
-    def _wait_until_ready(self, container_id):
-        for _ in range(60):
-            status = self._get(container_id, fields="status_code").get("status_code")
+    def _wait_until_ready(self, container_id, minutes=10):
+        for i in range(minutes * 12):
+            info = self._get(container_id, fields="status_code,status")
+            status = info.get("status_code")
             if status in ("FINISHED", "PUBLISHED"):
                 return
             if status in ("ERROR", "EXPIRED"):
-                raise RuntimeError(f"Instagram이 미디어 처리에 실패했습니다 (status {status}).")
+                raise ProcessingStuck(f"Instagram이 미디어 처리에 실패했습니다 (status {status}: {info.get('status', '')}).")
+            if i and i % 12 == 0:
+                print(f"[poster] Meta is still processing ({i // 12} min)…")
             time.sleep(5)
-        raise RuntimeError("Instagram 미디어 처리가 5분 안에 끝나지 않았습니다.")
+        raise ProcessingStuck(f"Instagram 미디어 처리가 {minutes}분 안에 끝나지 않았습니다.")
 
     def _publish(self, container_id):
         self._wait_until_ready(container_id)
@@ -237,17 +248,15 @@ class GraphPoster:
             self._request("POST", container["uri"], timeout=300, data=data, headers={
                 "Authorization": f"OAuth {config.IG_ACCESS_TOKEN}", "offset": "0", "file_size": str(len(data)),
                 "Content-Type": "application/octet-stream"})
-        except MetaAPIError:
-            # Meta's upload answer says nothing useful: ask the container itself. It often has the video after all
-            # ("Media is still being processed"): then let it finish and publish as usual.
+        except MetaAPIError as e:
+            print(f"[poster] upload answer: {e}")
+            # Meta sometimes keeps the video anyway: give it 2 minutes, then (still "in progress") count it as refused
             try:
-                info = self._get(container["id"], fields="status_code,status")
-            except RuntimeError:
-                info = {}
-            print(f"[poster] Meta says about this upload: {info.get('status_code')} — {info.get('status', '')}")
-            if info.get("status_code") not in ("IN_PROGRESS", "FINISHED"):
-                raise
-            print("[poster] Meta has the video anyway — waiting for it to finish processing")
+                self._wait_until_ready(container["id"], minutes=2)
+                print("[poster] Meta processed the video after all")
+                return container["id"]
+            except (ProcessingStuck, RuntimeError):
+                raise UploadRefused(str(e)) from None
         return container["id"]
 
     def post_image(self, path, caption):
@@ -262,16 +271,13 @@ class GraphPoster:
     def post_reel(self, path, caption, cover=None):
         fields = dict(media_type="REELS", caption=caption, share_to_feed="true")
         try:
-            container = self._video_container(path, **fields)
-        except MetaAPIError as e:
-            if "ProcessingFailed" not in str(e):
-                raise
-            # Meta rejected the file itself: once more with a plainer encode of the same video
+            return self._publish(self._video_container(path, **fields))
+        except (UploadRefused, ProcessingStuck) as e:
+            # Meta could not take this file: once more, in a new container, with a plainer encode of the same video
             import reel
 
-            print("[poster] Meta could not process the video — re-encoding it in a basic format and retrying")
-            container = self._video_container(reel.instagram_safe(path), **fields)
-        return self._publish(container)
+            print(f"[poster] Meta could not process the video ({e}) — re-encoding it in a basic format and retrying")
+            return self._publish(self._video_container(reel.instagram_safe(path), **fields))
 
     def post_album(self, paths, caption):
         """A carousel of the slide images (or a single post for one image)."""
