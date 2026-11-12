@@ -48,7 +48,8 @@ COMMON_FIELDS = [
     ("ACCENT_COLOR", "강조 색상", "color"),
     ("MUSIC_DIR", "릴스 배경음악 폴더 (선택)", "folder"),
     ("VOICE", "릴스 음성 (모든 채널 공통)", VOICES),
-    ("PEXELS_API_KEY", "Pexels API 키 (선택 — 릴스 배경 영상, pexels.com/api 무료)", "secret"),
+    ("PIXABAY_API_KEY", "Pixabay API 키 (선택 — 릴스 배경 영상, pixabay.com/api/docs 무료)", "secret"),
+    ("PEXELS_API_KEY", "Pexels API 키 (선택 — Pixabay 대신 써도 됨)", "secret"),
 ]
 CHANNEL_FIELDS = [
     ("ENABLED", "이 채널 사용", "check"),

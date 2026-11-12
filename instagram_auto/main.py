@@ -252,7 +252,7 @@ def run_once(dry_run=False, poster=None, only=None, story=None, cancel=None):
         cover_img = media[0]
         if kind == "reel":
             scenes = reel_timing(media)
-            if config.PEXELS_API_KEY:
+            if config.PIXABAY_API_KEY or config.PEXELS_API_KEY:
                 scenes = stock_video_scenes(scenes, pick, details, workdir)
             voices = None
             lines = narration(pick, details)

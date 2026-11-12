@@ -345,48 +345,68 @@ def _fetch(url, dest):
 
 
 PEXELS_VIDEOS = "https://api.pexels.com/videos/search"
+PIXABAY_VIDEOS = "https://pixabay.com/api/videos/"
+
+
+def _pexels(q, portrait):
+    """[(clip id, [(width, height, url)], seconds)] from Pexels."""
+    params = {"query": q, "per_page": 8, **({"orientation": "portrait"} if portrait else {})}
+    r = requests.get(PEXELS_VIDEOS, headers={"Authorization": config.PEXELS_API_KEY}, params=params, timeout=20)
+    r.raise_for_status()
+    return [(f"pexels{v.get('id')}",
+             [(f.get("width") or 0, f.get("height") or 0, f["link"]) for f in v.get("video_files", [])
+              if f.get("file_type") == "video/mp4" and f.get("link")],
+             v.get("duration") or 0) for v in r.json().get("videos", [])]
+
+
+def _pixabay(q, portrait):
+    """[(clip id, [(width, height, url)], seconds)] from Pixabay (no orientation filter: portrait is rare)."""
+    if portrait:
+        return []
+    r = requests.get(PIXABAY_VIDEOS, params={"key": config.PIXABAY_API_KEY, "q": q[:100], "per_page": 10,
+                                             "safesearch": "true"}, timeout=20)
+    r.raise_for_status()
+    return [(f"pixabay{h.get('id')}",
+             [(v.get("width") or 0, v.get("height") or 0, v["url"]) for v in (h.get("videos") or {}).values()
+              if v.get("url")],
+             h.get("duration") or 0) for h in r.json().get("hits", [])]
 
 
 def stock_video(query, dest, used=None):
-    """A free stock clip (Pexels) matching the query, saved as mp4; None without a key or when nothing fits.
-    Tries the whole query, then shorter versions of it; skips clips in `used` (ids) so scenes differ."""
-    if not config.PEXELS_API_KEY or not query:
+    """A free stock clip (Pixabay or Pexels) matching the query, saved as mp4; None without a key or when nothing
+    fits. Tries the whole query, then shorter versions of it; skips clips in `used` (ids) so scenes differ."""
+    sources = [s for key, s in ((config.PIXABAY_API_KEY, _pixabay), (config.PEXELS_API_KEY, _pexels)) if key]
+    if not sources or not query:
         return None
     used = used if used is not None else set()
     words = query.split()
     tries = list(dict.fromkeys([query, " ".join(words[-2:]), words[0]]))
     for q in tries:
-        for orientation in ("portrait", None):
-            params = {"query": q, "per_page": 8, **({"orientation": orientation} if orientation else {})}
-            try:
-                r = requests.get(PEXELS_VIDEOS, headers={"Authorization": config.PEXELS_API_KEY}, params=params,
-                                 timeout=20)
-                r.raise_for_status()
-                videos = r.json().get("videos", [])
-            except (requests.RequestException, ValueError) as e:
-                print(f"[news] stock video search failed ({e})")
-                return None
-            for video in videos:
-                if video.get("id") in used or (video.get("duration") or 0) < 3:
-                    continue
-                files = [f for f in video.get("video_files", []) if f.get("file_type") == "video/mp4" and f.get("link")]
-                sharp = [f for f in files if min(f.get("width") or 0, f.get("height") or 0) >= 1080]
-                if not (sharp or files):
-                    continue
-                # the smallest file that is still full HD (or the biggest there is)
-                best = (min(sharp, key=lambda f: (f.get("width") or 0) * (f.get("height") or 0)) if sharp
-                        else max(files, key=lambda f: (f.get("width") or 0) * (f.get("height") or 0)))
+        for portrait in (True, False):
+            for search in sources:
                 try:
-                    with requests.get(best["link"], headers=UA, timeout=60, stream=True) as d:
-                        d.raise_for_status()
-                        with open(dest, "wb") as out:
-                            for chunk in d.iter_content(1 << 16):
-                                out.write(chunk)
-                except requests.RequestException as e:
-                    print(f"[news] stock video download failed ({e})")
+                    clips = search(q, portrait)
+                except (requests.RequestException, ValueError, KeyError) as e:
+                    print(f"[news] stock video search failed ({e})")
                     continue
-                used.add(video.get("id"))
-                return dest
+                for clip_id, files, seconds in clips:
+                    if clip_id in used or seconds < 3 or not files:
+                        continue
+                    sharp = [f for f in files if min(f[0], f[1]) >= 1080]
+                    # the smallest file that is still full HD (or the biggest there is)
+                    width, height, link = (min(sharp, key=lambda f: f[0] * f[1]) if sharp
+                                           else max(files, key=lambda f: f[0] * f[1]))
+                    try:
+                        with requests.get(link, headers=UA, timeout=60, stream=True) as d:
+                            d.raise_for_status()
+                            with open(dest, "wb") as out:
+                                for chunk in d.iter_content(1 << 16):
+                                    out.write(chunk)
+                    except requests.RequestException as e:
+                        print(f"[news] stock video download failed ({e})")
+                        continue
+                    used.add(clip_id)
+                    return dest
     return None
 
 
