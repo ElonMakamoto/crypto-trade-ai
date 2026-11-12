@@ -42,10 +42,13 @@ jobs:
         shell: bash
         run: echo "${GITHUB_SHA::7}" > version.txt
 
+      - name: Draw the app icon
+        run: python make_icon.py
+
       - name: Build InstagramAuto.exe
         run: >
-          pyinstaller --noconfirm --onefile --windowed --name InstagramAuto
-          --add-data "fonts;fonts" --add-data "version.txt;."
+          pyinstaller --noconfirm --onefile --windowed --name InstagramAuto --icon icon.ico
+          --add-data "fonts;fonts" --add-data "version.txt;." --add-data "icon.png;."
           --collect-all imageio_ffmpeg --collect-all curl_cffi --collect-all tzdata --collect-submodules instagrapi
           app.py
 
