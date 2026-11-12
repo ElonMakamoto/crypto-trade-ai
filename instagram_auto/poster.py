@@ -231,10 +231,20 @@ class GraphPoster:
         if url:
             return self._post(f"{self.user_id}/media", video_url=url, **fields)["id"]
         container = self._post(f"{self.user_id}/media", upload_type="resumable", **fields)
-        size = path.stat().st_size
-        with open(path, "rb") as f:
-            self._request("POST", container["uri"], timeout=300, data=f, headers={
-                "Authorization": f"OAuth {config.IG_ACCESS_TOKEN}", "offset": "0", "file_size": str(size)})
+        data = path.read_bytes()
+        print(f"[poster] uploading {path.name} ({len(data) / 1e6:.1f} MB)")
+        try:
+            self._request("POST", container["uri"], timeout=300, data=data, headers={
+                "Authorization": f"OAuth {config.IG_ACCESS_TOKEN}", "offset": "0", "file_size": str(len(data)),
+                "Content-Type": "application/octet-stream"})
+        except MetaAPIError:
+            # Meta's upload answer says nothing useful: show what the container itself reports
+            try:
+                info = self._get(container["id"], fields="status_code,status")
+                print(f"[poster] Meta says about this upload: {info.get('status_code')} — {info.get('status', '')}")
+            except RuntimeError:
+                pass
+            raise
         return container["id"]
 
     def post_image(self, path, caption):
