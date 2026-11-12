@@ -283,11 +283,12 @@ def rank_trending(stories, language, n=10):
     return [(s, s["title"]) for s in stories[:n]]
 
 
-SCRIPT_PROMPT = """You are the voice of a viral Instagram news reel: a warm, friendly young woman talking to her
-followers like a friend. Write what she SAYS over each slide below: a natural spoken script in {lang}, not the slide
-text read out. Conversational and lively (e.g. "So, here's what happened..."), short sentences that sound good out
-loud, only facts that are on the slides. The first line is a hook, the last line invites people to follow for more
-(no @handle). At most 25 words per line ({lang} script: about the same speaking length).
+SCRIPT_PROMPT = """You are a professional female TV news anchor voicing an Instagram news reel. Write what she SAYS
+over each slide below: a broadcast news script in {lang}, not the slide text read out. Clear, calm, authoritative
+news-anchor tone (like an evening news bulletin), short full sentences that sound good out loud, only facts that are
+on the slides; no slang, no emojis, no stage directions. The first line opens the story like a news lead, the last
+line invites viewers to follow for more news (no @handle). At most 25 words per line ({lang} script: about the same
+speaking length).
 
 Slides (one line each, same order):
 {slides}
