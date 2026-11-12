@@ -238,13 +238,16 @@ class GraphPoster:
                 "Authorization": f"OAuth {config.IG_ACCESS_TOKEN}", "offset": "0", "file_size": str(len(data)),
                 "Content-Type": "application/octet-stream"})
         except MetaAPIError:
-            # Meta's upload answer says nothing useful: show what the container itself reports
+            # Meta's upload answer says nothing useful: ask the container itself. It often has the video after all
+            # ("Media is still being processed"): then let it finish and publish as usual.
             try:
                 info = self._get(container["id"], fields="status_code,status")
-                print(f"[poster] Meta says about this upload: {info.get('status_code')} — {info.get('status', '')}")
             except RuntimeError:
-                pass
-            raise
+                info = {}
+            print(f"[poster] Meta says about this upload: {info.get('status_code')} — {info.get('status', '')}")
+            if info.get("status_code") not in ("IN_PROGRESS", "FINISHED"):
+                raise
+            print("[poster] Meta has the video anyway — waiting for it to finish processing")
         return container["id"]
 
     def post_image(self, path, caption):

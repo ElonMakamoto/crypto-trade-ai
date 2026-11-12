@@ -44,6 +44,8 @@ def _hex(color):
 
 def _tokens(text):
     """[(token, offset)], each token keeping its trailing space so lines can be joined back exactly."""
+    # line breaks from the AI become spaces (same length, so highlight offsets still match)
+    text = re.sub(r"[\r\n\t\v\f]", " ", text)
     if l10n.lang() != "Japanese" and " " in text.strip():
         return [(m.group(0), m.start()) for m in re.finditer(r"\S+\s*", text)]
     tokens = []
