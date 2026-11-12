@@ -1,7 +1,7 @@
 """Natural narration for reels: Gemini text-to-speech with the same Google API key.
 
-The whole reel is read in one request (one line per slide, with a long pause between lines); the audio is
-then cut at the longest pauses so each slide gets its own clip.
+The whole reel is read in one request: only the script itself, one paragraph per scene (any instruction in the
+text would be read out too); the audio is then cut at the longest pauses so each scene gets its own clip.
 """
 import base64
 import re
@@ -14,19 +14,12 @@ import ai
 import config
 import reel
 
-VOICE_NAME = "Sulafat"  # warm female voice; Gemini voices speak every language
+VOICE_NAME = "Kore"  # firm, clear female voice for a news read; Gemini voices speak every language
 SPEED = 1.15  # the narration is always played this much faster
 DEFAULT_MODEL = "gemini-2.5-flash-preview-tts"
 RATE = 24000  # Gemini TTS returns 16-bit mono PCM at 24 kHz
 FRAME = RATE // 50  # 20 ms
 _model = None
-
-PROMPT = """Say the following {n} lines in {lang} as a warm, friendly young woman telling a friend about the
-news: natural and conversational, with real expression, not like a news anchor reading. Leave a long pause of
-about two seconds after each line. Say only the lines themselves.
-
-{lines}"""
-
 
 def _tts_model():
     """Newest Flash text-to-speech model this key can use."""
@@ -110,8 +103,8 @@ def narrate(lines, workdir):
     if not spoken:
         return None
     try:
-        samples = _speak(PROMPT.format(n=len(spoken), lang=config.POST_LANGUAGE,
-                                       lines="\n\n".join(text for _, text in spoken)))
+        # the script only, a paragraph per scene: the paragraph breaks give the pauses the clips are cut at
+        samples = _speak("\n\n".join(text for _, text in spoken))
     except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as e:
         print(f"[voice] narration skipped ({e})")
         return None
