@@ -1,6 +1,7 @@
 """Gemini (Google AI API key) picks the most viral stories and writes Pubity-style copy."""
 import json
 import re
+import time
 
 import requests
 
@@ -148,6 +149,19 @@ def _gemini(prompt):
     if r.status_code == 404:
         # configured model no longer exists: switch to a current one and remember it
         r = _generate(_switch_model(False, "is not available"), prompt)
+    for wait in (4, 12):
+        if r.status_code not in (429, 500, 503):
+            break
+        # busy ("high demand"): wait a little and ask again
+        print(f"[ai] Gemini is busy (HTTP {r.status_code}) — retrying in {wait} s")
+        time.sleep(wait)
+        r = _generate(model, prompt)
+    if r.status_code in (429, 500, 503):
+        # still busy: this one request goes to another Flash model (the setting stays as it is)
+        other = _available_flash_model(fast="lite" not in model)
+        if other and other != model:
+            print(f"[ai] {model} is still busy — asking {other} this time")
+            r = _generate(other, prompt)
     if not r.ok:
         try:
             detail = r.json()["error"]["message"]
