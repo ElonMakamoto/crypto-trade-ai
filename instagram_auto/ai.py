@@ -244,7 +244,7 @@ def write_details(pick, story, article_text, n_slides=4):
         try:
             data = _gemini(DETAILS_PROMPT.format(headline=pick["headline"], text=article_text[:4000], n=n_slides,
                                                  caption_guide=CAPTION_GUIDE[config.NEWS_FOCUS == "disasters"],
-                                                 slides_note=note, lang=config.POST_LANGUAGE))
+                                                 slides_note=note, lang=config.POST_LANGUAGE) + _style())
             if data.get("caption"):
                 data["slides"] = [sl for sl in data.get("slides", []) if sl.get("text")][:n_slides]
                 if n_slides >= MIN_SLIDES and len(data["slides"]) < MIN_SLIDES:
@@ -253,7 +253,7 @@ def write_details(pick, story, article_text, n_slides=4):
                     again = _gemini(DETAILS_PROMPT.format(
                         headline=pick["headline"], text=article_text[:4000], n=n_slides,
                         caption_guide=CAPTION_GUIDE[config.NEWS_FOCUS == "disasters"],
-                        slides_note=f"You MUST return exactly {n_slides} slides.", lang=config.POST_LANGUAGE))
+                        slides_note=f"You MUST return exactly {n_slides} slides.", lang=config.POST_LANGUAGE) + _style())
                     more = [sl for sl in again.get("slides", []) if sl.get("text")][:n_slides]
                     if len(more) > len(data["slides"]):
                         data["slides"] = more
@@ -304,7 +304,8 @@ def rank_trending(stories, language, n=10):
 SCRIPT_PROMPT = """You are a professional female TV news anchor voicing an Instagram news reel. Write what she SAYS
 over each slide below: a broadcast news script in {lang}, not the slide text read out. Clear, calm, authoritative
 news-anchor tone (like an evening news bulletin), short full sentences that sound good out loud, only facts that are
-on the slides; no slang, no emojis, no stage directions. The first line opens the story like a news lead, the last
+on the slides; no emojis, no stage directions (slang only where the style rules below allow it). The first line
+opens the story like a news lead, the last
 line invites viewers to follow for more news (no @handle). At most 25 words per line ({lang} script: about the same
 speaking length).
 
@@ -320,7 +321,7 @@ def write_script(slide_texts):
         return None
     try:
         data = _gemini(SCRIPT_PROMPT.format(lang=config.POST_LANGUAGE, n=len(slide_texts),
-                                            slides="\n".join(f"{i + 1}. {t}" for i, t in enumerate(slide_texts))))
+                                            slides="\n".join(f"{i + 1}. {t}" for i, t in enumerate(slide_texts))) + _style())
         lines = [str(line).strip() for line in data.get("lines", [])]
         if len(lines) == len(slide_texts) and all(lines):
             return lines
@@ -332,7 +333,42 @@ def write_script(slide_texts):
 
 SCRIPTS = {"Korean": re.compile(r"[\uac00-\ud7a3]"), "Japanese": re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")}
 
-TRANSLATE_PROMPT = """Translate each item into natural {lang} for an Instagram news page about the same story.
+# How each channel's language should sound: written natively for that audience, never translated word for word
+WRITING_STYLE = {
+    "Korean": """
+KOREAN STYLE (very important): write as a Korean news editor would, NOT a translation from English.
+- Natural Korean word order: time/place first, the key fact up front, the verb at the end. Never follow English
+  sentence order.
+- No translationese: avoid 그/그녀, "~에 의해", "~되어지다", "~것으로 보여진다", "~하는 것이다", "가지다" for have,
+  long noun chains and needless passive voice. Prefer short, active sentences.
+- Headlines like Korean online news titles: compact, noun-ending or "~했다" style, with a comma after the subject
+  (e.g. "삼성, 2나노 칩 양산 돌입" / "일본 강진에 쓰나미 경보… 주민 대피"). Use … for a twist, never ALL CAPS.
+- Captions and slides: 해요체/한다체 consistently in one post, the way popular Korean news Instagram pages write.
+- Voice script: a Korean TV news anchor (~습니다/~했습니다), the most important fact first in each line, sentences
+  short enough to say in one breath, numbers read naturally (3만 명, 2조 원).
+""",
+    "Japanese": """
+JAPANESE STYLE (very important): write like a trending Japanese news account popular with people in their teens to
+30s, NOT a translation from English.
+- Natural Japanese word order and particles; short sentences, no stiff 直訳 phrasing (avoid 彼/彼女, 〜によって
+  passives, 〜することができる).
+- Use current Japanese internet words where they fit naturally: ガチで, エグい, ヤバすぎ, 神〜, 爆誕, まさかの,
+  話題沸騰, 衝撃, 〜すぎる, 〜案件, 待ったなし, 沼 — but at most one or two per text and never on tragedies, deaths,
+  disasters or crime (those stay respectful and factual).
+- Headlines: punchy SNS-news style with 【速報】/【衝撃】 or a 「quote」 when it fits, e.g. "【速報】任天堂の新型機、
+  ついに発表へ" / "まさかの展開…〇〇が電撃引退".
+- Voice script: a friendly, modern news presenter (です/ます), lively but clear; light trendy words only on light
+  topics.
+""",
+}
+
+
+def _style():
+    """The writing-style rules for the channel's language ("" for English)."""
+    return WRITING_STYLE.get(config.POST_LANGUAGE, "")
+
+
+TRANSLATE_PROMPT = """Rewrite each item as natural, native {lang} (not a word-for-word translation) for an Instagram news page about the same story.
 Keep names, numbers, emojis and line breaks. Headlines stay short and punchy (ALL CAPS has no meaning in {lang}).
 Return JSON only: {{"items": ["...", ...]}} with exactly {count} items in the same order.
 
@@ -366,7 +402,7 @@ def localize(pick, details):
     texts = [container[key] for container, key in slots]
     try:
         data = _gemini(TRANSLATE_PROMPT.format(lang=config.POST_LANGUAGE, count=len(texts),
-                                               items=json.dumps(texts, ensure_ascii=False)))
+                                               items=json.dumps(texts, ensure_ascii=False)) + _style())
         translated = data.get("items", [])
         if len(translated) != len(texts):
             raise ValueError(f"got {len(translated)} translations for {len(texts)} texts")
@@ -409,7 +445,7 @@ def pick_and_write(stories, n, skip_ids):
     try:
         prompt = PROMPTS.get(config.NEWS_FOCUS, PROMPT)
         data = _gemini(prompt.format(n=n, lang=config.POST_LANGUAGE, stories=listing,
-                                     audience=AUDIENCE.get(config.POST_LANGUAGE, AUDIENCE["English"])))
+                                     audience=AUDIENCE.get(config.POST_LANGUAGE, AUDIENCE["English"])) + _style())
         by_id = {s["id"]: s for s in candidates}
         picks = [p for p in data.get("picks", []) if p.get("id") in by_id]
         if picks:
