@@ -812,8 +812,17 @@ def run():
     resume = next((a.split("=", 1)[1].split(",") for a in sys.argv if a.startswith("--resume-auto=")), [])
     if "--resume-auto" in sys.argv:  # older builds restart with a bare flag: resume English
         resume = ["en"]
+    if sys.platform == "win32":
+        try:  # its own taskbar entry and icon, not the generic Python/Tk one
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("InstagramAuto.App")
+        except (AttributeError, OSError):
+            pass
     root = tk.Tk()
-    try:  # the window and taskbar show the app icon too, not only the .exe
+    try:  # the window, taskbar and Alt-Tab show the app icon too, not only the .exe
+        if sys.platform == "win32" and (config.BASE_DIR / "icon.ico").exists():
+            root.iconbitmap(default=str(config.BASE_DIR / "icon.ico"))
         root.iconphoto(True, tk.PhotoImage(file=str(config.BASE_DIR / "icon.png")))
     except tk.TclError:
         pass
