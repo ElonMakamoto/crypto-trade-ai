@@ -13,6 +13,11 @@ IG_VIDEO = ["-c:v", "libx264", "-preset", "slow", "-profile:v", "high", "-level"
             "-r", str(FPS), "-g", str(FPS * 2), "-maxrate", "12M", "-bufsize", "24M"]
 # stock clips can be HDR / wide-gamut: always tag (and convert to) plain SDR BT.709
 BT709 = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"]
+# Meta's upload refuses a reel whose sound runs as long as (or past) the picture: the sound ends 0.1 s earlier
+def AUDIO_END(seconds):
+    return f"{max(seconds - 0.1, 0.1):.3f}"
+
+
 IG_AUDIO = ["-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k"]
 
 
@@ -37,6 +42,7 @@ def slideshow(slides, out_path, workdir, voices=None):
     voices = voices or [None] * len(slides)
     lead, tail = 0.3, 0.6  # silence before / after each narration clip
     timing = [max(slide[1], round(lead + v[1] + tail, 2)) if v else slide[1] for slide, v in zip(slides, voices)]
+    timing = [round(s * FPS) / FPS for s in timing]  # whole frames, so the picture is exactly as long as planned
     inputs, chain, n = [], [], 0  # n: ffmpeg input number of the next input
     for i, ((image, _, *clip), seconds) in enumerate(zip(slides, timing)):
         clip = clip[0] if clip else None
@@ -78,7 +84,8 @@ def slideshow(slides, out_path, workdir, voices=None):
         start += seconds
     # soft start and end, and a limiter so voice + music never clip (clipping is the crackle you hear)
     chain.append(f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:normalize=0,alimiter=limit=0.89,"
-                 f"afade=t=in:d=0.4,afade=t=out:st={max(total - 1, 0)}:d=1[aout]")
+                 f"afade=t=in:d=0.4,afade=t=out:st={max(total - 1, 0)}:d=1,"
+                 f"atrim=0:{AUDIO_END(total)},asetpts=PTS-STARTPTS[aout]")
 
     _run([
         ffmpeg_exe(), "-y", "-loglevel", "error", *inputs,
@@ -96,13 +103,31 @@ def instagram_safe(video_path, silent=False):
     out = video_path.with_name(video_path.stem + ("-silent" if silent else "-safe") + ".mp4")
     sound = (["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100", "-map", "0:v:0", "-map", "1:a:0",
               "-shortest"] if silent else [])
-    _run([ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(video_path), *sound,
+    trim = [] if silent else ["-af", f"atrim=0:{AUDIO_END(duration(video_path))},asetpts=PTS-STARTPTS"]
+    _run([ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(video_path), *sound, *trim,
           "-vf", f"scale=720:1280:flags=lanczos,fps={FPS},format=yuv420p", *BT709,
           "-c:v", "libx264", "-preset", "medium", "-profile:v", "main", "-level", "4.0", "-crf", "22",
           "-maxrate", "4M", "-bufsize", "8M", "-g", str(FPS * 2), "-fps_mode", "cfr",
           "-c:a", "aac", "-ar", "44100", "-ac", "2", "-b:a", "128k", "-map_metadata", "-1",
           "-movflags", "+faststart", str(out)])
     return out
+
+
+def _probe(video_path):
+    try:
+        return subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(video_path), "-map", "0", "-c", "copy",
+                               "-f", "null", "-"], capture_output=True, text=True,
+                              creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0).stderr
+    except OSError:
+        return ""
+
+
+def duration(video_path):
+    """Length of the file in seconds (0 if unknown)."""
+    import re
+
+    m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", _probe(video_path))
+    return int(m[1]) * 3600 + int(m[2]) * 60 + float(m[3]) if m else 0.0
 
 
 def describe(video_path):
