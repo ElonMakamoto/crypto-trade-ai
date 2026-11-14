@@ -20,7 +20,7 @@ from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 import requests
-from PIL import Image, ImageTk
+from PIL import Image, ImageFilter, ImageTk
 
 import ai
 import config
@@ -78,6 +78,66 @@ def open_path(path):
         os.startfile(path)
     else:
         subprocess.Popen(["xdg-open", str(path)])
+
+
+def _fit(img, box):
+    """Scale an image to fit box (w, h) with high-quality resampling and a light sharpen, so text stays crisp."""
+    scale = min(box[0] / img.width, box[1] / img.height)
+    size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
+    img = img.resize(size, Image.LANCZOS, reducing_gap=3.0)
+    return img.filter(ImageFilter.UnsharpMask(radius=1, percent=60, threshold=2)) if scale < 0.8 else img
+
+
+def _play_badge(img):
+    """A round ▶ mark in the middle of a reel's cover."""
+    from PIL import ImageDraw
+
+    img = img.copy()
+    d = ImageDraw.Draw(img, "RGBA")
+    r = min(img.size) // 7
+    cx, cy = img.width // 2, img.height // 2
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(0, 0, 0, 140))
+    d.polygon([(cx - r // 3, cy - r // 2), (cx - r // 3, cy + r // 2), (cx + r // 2, cy)], fill=(255, 255, 255, 230))
+    return img
+
+
+class PreviewViewer:
+    """The made slides at full size, one at a time: ◀ ▶ (or arrow keys) to move, Esc to close."""
+
+    def __init__(self, root, items, index=0):
+        self.items, self.index = items, index
+        self.win = tk.Toplevel(root)
+        self.win.configure(bg="#111")
+        h = int(root.winfo_screenheight() * 0.82)
+        self.box = (int(h * 0.8), h - 70)  # room for the buttons below
+        w = self.box[0] + 40
+        self.win.geometry(f"{w}x{h}+{(root.winfo_screenwidth() - w) // 2}+{(root.winfo_screenheight() - h) // 3}")
+        self.label = tk.Label(self.win, bg="#111")
+        self.label.pack(expand=True)
+        bar = ttk.Frame(self.win, padding=6)
+        bar.pack(fill="x")
+        ttk.Button(bar, text="◀", width=4, command=lambda: self.show(self.index - 1)).pack(side="left")
+        self.count = ttk.Label(bar)
+        self.count.pack(side="left", padx=10)
+        ttk.Button(bar, text="▶", width=4, command=lambda: self.show(self.index + 1)).pack(side="left")
+        self.open_btn = ttk.Button(bar, command=lambda: open_path(self.items[self.index][1]))
+        self.open_btn.pack(side="right")
+        for key, step in (("<Left>", -1), ("<Right>", 1)):
+            self.win.bind(key, lambda e, s=step: self.show(self.index + s))
+        self.win.bind("<Escape>", lambda e: self.win.destroy())
+        self.show(index)
+        self.win.focus_set()
+
+    def show(self, index):
+        self.index = index % len(self.items)
+        path, source = self.items[self.index]
+        img = _fit(Image.open(path).convert("RGB"), self.box)
+        video = source.suffix.lower() in (".mp4", ".mov")
+        self.photo = ImageTk.PhotoImage(_play_badge(img) if video else img)
+        self.label.configure(image=self.photo)
+        self.count.configure(text=f"{self.index + 1} / {len(self.items)}")
+        self.open_btn.configure(text="▶ 릴스 재생" if video else "파일 열기")
+        self.win.title(f"미리보기 {self.index + 1}/{len(self.items)} — {source.name}")
 
 
 class LogWriter:
@@ -286,9 +346,21 @@ class ChannelPanel:
         ttk.Label(frame, textvariable=self.status, style="Status.TLabel", wraplength=500).grid(
             row=2, column=0, sticky="w", pady=(8, 6))
         self._build_news(frame)
-        self.preview = ttk.Frame(frame, height=262)
-        self.preview.grid(row=4, column=0, sticky="ew", pady=(6, 0))
-        self.preview.grid_propagate(False)
+        # one row of large thumbnails, scrolled sideways; a click opens the big viewer
+        strip = ttk.Frame(frame)
+        strip.grid(row=4, column=0, sticky="ew", pady=(6, 0))
+        strip.columnconfigure(0, weight=1)
+        self.preview_canvas = tk.Canvas(strip, height=self.THUMB[1] + 30, highlightthickness=0)
+        self.preview_canvas.grid(row=0, column=0, sticky="ew")
+        bar = ttk.Scrollbar(strip, orient="horizontal", command=self.preview_canvas.xview)
+        bar.grid(row=1, column=0, sticky="ew")
+        self.preview_canvas.configure(xscrollcommand=bar.set)
+        self.preview = ttk.Frame(self.preview_canvas)
+        self.preview_canvas.create_window(0, 0, window=self.preview, anchor="nw")
+        self.preview.bind("<Configure>", lambda e: self.preview_canvas.configure(
+            scrollregion=self.preview_canvas.bbox("all")))
+        self.preview_canvas.bind("<MouseWheel>", lambda e: self.preview_canvas.xview_scroll(-e.delta // 120, "units"))
+        self.preview_paths = []
         self.log = scrolledtext.ScrolledText(frame, height=10, font=("Consolas", 9), state="disabled", wrap="word")
         self.log.grid(row=5, column=0, sticky="nsew", pady=(6, 0))
         self.show_preview([])
@@ -438,8 +510,8 @@ class ChannelPanel:
                 made = bot.run_once(dry_run=dry_run, poster=uploader, only=only, story=story,
                                     cancel=self.cancel_event)
                 # slide images as they are, videos by their cover frame
-                images = [m if m.suffix == ".jpg" else m.with_suffix(".jpg") for m in made]
-                images = [m for m in images if m.exists()]
+                images = [(m if m.suffix == ".jpg" else m.with_suffix(".jpg"), m) for m in made]
+                images = [(img, src) for img, src in images if img.exists()]
                 if images:
                     self.app.root.after(0, self.show_preview, images)
                 print("=== 완료 ===\n")
@@ -493,22 +565,35 @@ class ChannelPanel:
         self.stop_auto() if self.auto_on() else self.start_auto()
 
     # ----- display
-    def show_preview(self, paths):
+    THUMB = (176, 220)  # 4:5, like the posts
+
+    def show_preview(self, items):
+        """items: [(image, source)] — source is the slide itself, or the reel video the image is the cover of."""
         for child in self.preview.winfo_children():
             child.destroy()
         self.preview_imgs = []
-        if not paths:
-            ttk.Label(self.preview, text="미리보기가 여기에 나옵니다", foreground="#888").place(relx=0.5, rely=0.5,
-                                                                                         anchor="center")
+        self.preview_paths = [(Path(i[0]), Path(i[1])) if isinstance(i, tuple) else (Path(i), Path(i)) for i in items]
+        if not self.preview_paths:
+            ttk.Label(self.preview, text="미리보기가 여기에 나옵니다 (클릭하면 크게 볼 수 있어요)", foreground="#888").pack(
+                padx=8, pady=self.THUMB[1] // 2)
             return
-        for i, path in enumerate(paths[:8]):
-            img = Image.open(path)
-            img.thumbnail((100, 125))
+        for i, (path, source) in enumerate(self.preview_paths):
+            img = Image.open(path).convert("RGB")
+            img = _fit(img, self.THUMB)
+            if source.suffix.lower() in (".mp4", ".mov"):
+                img = _play_badge(img)
             photo = ImageTk.PhotoImage(img)
             self.preview_imgs.append(photo)  # keep references so Tk doesn't drop the images
-            label = ttk.Label(self.preview, image=photo, cursor="hand2")
-            label.grid(row=i // 4, column=i % 4, padx=3, pady=3)
-            label.bind("<Button-1>", lambda e, p=path: open_path(p))
+            cell = ttk.Frame(self.preview)
+            cell.grid(row=0, column=i, padx=4, pady=2)
+            label = ttk.Label(cell, image=photo, cursor="hand2")
+            label.pack()
+            kind = "릴스 ▶" if source.suffix.lower() in (".mp4", ".mov") else f"{i + 1}/{len(self.preview_paths)}"
+            ttk.Label(cell, text=kind, foreground="#666").pack()
+            for w in (cell, label):
+                w.bind("<Button-1>", lambda e, n=i: PreviewViewer(self.app.root, self.preview_paths, n))
+                w.bind("<MouseWheel>", lambda e: self.preview_canvas.xview_scroll(-e.delta // 120, "units"))
+        self.preview_canvas.xview_moveto(0)
 
     def poll_log(self):
         chunks = []
