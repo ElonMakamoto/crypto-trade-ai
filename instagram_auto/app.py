@@ -4,6 +4,7 @@ Three channels side by side (English, 한국어, 日本語): the same world news
 language and posted to its own Instagram account (same Meta token, a different account ID per channel),
 each at its own daily times. Settings live behind the ⚙ 설정 button.
 """
+import json
 import math
 import os
 import queue
@@ -37,19 +38,14 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 UPDATE_CHECK_MS = 3 * 3600 * 1000  # also check for a new version every 3 hours
 TOKEN_HELP_URL = "https://chedlab.org/instagram/#token"
 
-MODES = {"alternate": "하나씩 번갈아 (릴스 → 게시물)", "reel": "릴스만", "post": "게시물만 (3~6장 슬라이드)"}
-FOCUSES = {"world": "세계 주요 뉴스 (자연재해 포함)", "disasters": "자연재해 뉴스만", "trending": "전체 인기 뉴스 (연예·스포츠 포함)"}
+FOCUSES = {"learn": "배움 콘텐츠 — 그림 슬라이드 10장 (심리·돈·습관·명언·상식)", "world": "세계 주요 뉴스 (자연재해 포함)", "disasters": "자연재해 뉴스만", "trending": "전체 인기 뉴스 (연예·스포츠 포함)"}
 VOICES = {"on": "켜기 (자연스러운 여자 목소리)", "off": "끄기 (음악만)"}
 COMMON_FIELDS = [
     # key, label, kind
     ("GOOGLE_API_KEY", "Google API 키", "secret"),
     ("IG_ACCESS_TOKEN", "Meta 액세스 토큰 (모든 채널 공통, EAA... 또는 IG...)", "secret"),
-    ("NEWS_FOCUS", "뉴스 주제 (모든 채널 공통)", FOCUSES),
+    ("NEWS_FOCUS", "올릴 내용 (모든 채널 공통)", FOCUSES),
     ("ACCENT_COLOR", "강조 색상", "color"),
-    ("MUSIC_DIR", "릴스 배경음악 폴더 (선택)", "folder"),
-    ("VOICE", "릴스 음성 (모든 채널 공통)", VOICES),
-    ("PIXABAY_API_KEY", "Pixabay API 키 (선택 — 릴스 배경 영상, pixabay.com/api/docs 무료)", "secret"),
-    ("PEXELS_API_KEY", "Pexels API 키 (선택 — Pixabay 대신 써도 됨)", "secret"),
 ]
 CHANNEL_FIELDS = [
     ("ENABLED", "이 채널 사용", "check"),
@@ -57,7 +53,6 @@ CHANNEL_FIELDS = [
     ("CHANNEL_TOKEN", "이 채널 전용 Meta 토큰 (선택 — 비우면 공통 탭의 토큰 사용)", "secret"),
     ("BRAND_HANDLE", "이미지에 넣을 계정명 (예: @chedlab888)", "text"),
     ("POST_TIMES", "자동 업로드 시간 (최대 5개)", "times"),
-    ("POST_MODE", "자동 업로드 때 올릴 것", MODES),
 ]
 
 _local = threading.local()
@@ -68,6 +63,11 @@ def app_version():
         return (config.BASE_DIR / "version.txt").read_text().strip()
     except OSError:
         return "dev"
+
+
+def learning():
+    """True when the app makes learning posts (the default) instead of news."""
+    return (config.load_settings().get("NEWS_FOCUS") or config.DEFAULTS["NEWS_FOCUS"]) == "learn"
 
 
 def open_path(path):
@@ -332,7 +332,7 @@ class ChannelPanel:
         self.auto_btn = ttk.Button(controls, text="▶ 자동 시작", style="Accent.TButton", command=self.toggle_auto)
         self.auto_btn.pack(side="left")
         self.buttons = [self.auto_btn]
-        for text, kw in [("🎬 릴스", {"only": "reel"}), ("🖼 게시물", {"only": "post"}), ("👁 미리보기", {"dry_run": True})]:
+        for text, kw in [("🖼 게시물 올리기", {"only": "post"}), ("👁 미리보기", {"dry_run": True})]:
             btn = ttk.Button(controls, text=text, command=lambda kw=kw: self.run_now(**kw))
             btn.pack(side="left", padx=(6, 0))
             self.buttons.append(btn)
@@ -376,7 +376,9 @@ class ChannelPanel:
         box.columnconfigure(0, weight=1)
         head = ttk.Frame(box)
         head.grid(row=0, column=0, columnspan=2, sticky="ew")
-        ttk.Label(head, text=f"🔥 {self.meta['name']} 독자 관심 TOP 10", style="Status.TLabel").pack(side="left")
+        self.news_title = tk.StringVar(value=f"💡 {self.meta['name']} 배울 거리 아이디어 10" if learning()
+                                       else f"🔥 {self.meta['name']} 독자 관심 TOP 10")
+        ttk.Label(head, textvariable=self.news_title, style="Status.TLabel").pack(side="left")
         self.news_time = tk.StringVar()
         ttk.Label(head, textvariable=self.news_time, foreground="#666").pack(side="left", padx=6)
         ttk.Button(head, text="🔄", width=3, command=self.load_news).pack(side="right")
@@ -389,8 +391,7 @@ class ChannelPanel:
         bar.grid(row=1, column=1, sticky="ns", pady=(3, 0))
         self.news_list.configure(yscrollcommand=bar.set)
         self.news_menu = tk.Menu(self.app.root, tearoff=False)
-        for text, kw in [("👁 이 뉴스로 미리보기", {"dry_run": True}), ("🎬 이 뉴스로 릴스 올리기", {"only": "reel"}),
-                         ("🖼 이 뉴스로 게시물 올리기", {"only": "post"})]:
+        for text, kw in [("👁 이걸로 미리보기", {"dry_run": True}), ("🖼 이걸로 게시물 올리기", {"only": "post"})]:
             self.news_menu.add_command(label=text, command=lambda kw=kw: self.run_now(**kw))
         self.news_menu.add_separator()
         self.news_menu.add_command(label="취소")
@@ -416,13 +417,25 @@ class ChannelPanel:
     def _fetch_news(self):
         _local.channel = self.cid
         try:
-            ranked = ai.rank_trending(news.trending_pool(*self.meta["news"]), self.meta["language"])
+            if learning():
+                # 10 lesson ideas for this channel's readers (shown in English), none of them posted before
+                done = bot.learned(json.loads(self.state_file().read_text(encoding="utf-8"))) \
+                    if self.state_file().exists() else []
+                ranked = ai.learn_topics(self.meta["language"], 10, avoid=done)
+            else:
+                ranked = ai.rank_trending(news.trending_pool(*self.meta["news"]), self.meta["language"])
         except Exception as e:  # network trouble: keep the old list
             print(f"[news] top 10 failed: {e}")
             ranked = None
         self.app.root.after(0, self._show_news, ranked)
 
+    def state_file(self):
+        base = config._BASE_STATE_FILE
+        return base if self.cid == "en" else base.with_name(f"posted_{self.cid}.json")
+
     def _show_news(self, ranked):
+        self.news_title.set(f"💡 {self.meta['name']} 배울 거리 아이디어 10" if learning()
+                            else f"🔥 {self.meta['name']} 독자 관심 TOP 10")
         if ranked:
             self.news = ranked
             self.news_list.delete(0, "end")
@@ -482,7 +495,7 @@ class ChannelPanel:
         if not dry_run and not self.app.ready(self.cid):
             return
         if story:
-            self.log_q.put(f"📰 고른 뉴스로 만듭니다: {story['title']}\n")
+            self.log_q.put(f"📌 고른 주제로 만듭니다: {story['title']}\n")
         threading.Thread(target=self.round, args=(dry_run, only, story), daemon=True).start()
 
     def cancel(self):
@@ -647,7 +660,7 @@ class App:
         head = ttk.Frame(outer)
         head.pack(fill="x", pady=(0, 10))
         ttk.Label(head, text="📰 " + APP_NAME, style="Title.TLabel").pack(side="left")
-        ttk.Label(head, text="  English · 한국어 · 日本語 — 각 나라 독자가 볼 뉴스를 각 계정에", foreground="#666").pack(side="left")
+        ttk.Label(head, text="  English · 한국어 · 日本語 — 배울 거리 그림 슬라이드 10장을 각 계정에", foreground="#666").pack(side="left")
         ttk.Button(head, text="⚙ 설정", style="Accent.TButton", command=lambda: SettingsWindow(self)).pack(side="right")
         ttk.Label(head, text=f"버전 {app_version()}   ").pack(side="right")
         # fallback when the automatic update can't replace the .exe (e.g. no write permission)

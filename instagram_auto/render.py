@@ -303,3 +303,203 @@ def reel_frame(slide_path, out_path, size=(1080, 1920)):
         slide = slide.resize((W, round(slide.height * W / slide.width)), Image.LANCZOS)
     bg.paste(slide, (0, (H - slide.height) // 2))
     return save_jpeg(bg, out_path)
+
+
+# ---------------------------------------------------------------- learning posts: paper slides with a doodle
+PAPER, INK, SOFT = (247, 242, 232), (28, 26, 24), (150, 142, 128)
+MARK = (255, 214, 64)  # marker-yellow behind the key words and inside the doodles
+
+
+def _icon(name, size=600):
+    """A built-in line doodle (drawn 3x and scaled down so the marker lines are smooth)."""
+    import math
+
+    S = size * 3
+    img = Image.new("RGB", (S, S), PAPER)
+    d = ImageDraw.Draw(img)
+    w = S // 34  # marker width
+    c = S // 2
+
+    def line(points, fill=INK, width=w):
+        pts = [(int(x * S), int(y * S)) for x, y in points]
+        d.line(pts, fill=fill, width=width, joint="curve")
+        for x, y in (pts[0], pts[-1]):
+            d.ellipse((x - width // 2, y - width // 2, x + width // 2, y + width // 2), fill=fill)
+
+    def circle(x, y, r, fill=None, outline=INK):
+        box = (int((x - r) * S), int((y - r) * S), int((x + r) * S), int((y + r) * S))
+        d.ellipse(box, fill=fill, outline=outline, width=w)
+
+    def person(x, y, s=1.0, arms="down"):
+        circle(x, y, 0.07 * s, fill=PAPER)
+        line([(x, y + 0.07 * s), (x, y + 0.30 * s)])
+        line([(x, y + 0.30 * s), (x - 0.09 * s, y + 0.47 * s)])
+        line([(x, y + 0.30 * s), (x + 0.09 * s, y + 0.47 * s)])
+        dy = -0.10 * s if arms == "up" else 0.10 * s
+        line([(x, y + 0.13 * s), (x - 0.12 * s, y + 0.13 * s + dy)])
+        line([(x, y + 0.13 * s), (x + 0.12 * s, y + 0.13 * s + dy)])
+
+    if name == "bulb":
+        circle(0.5, 0.40, 0.21, fill=MARK)
+        d.rounded_rectangle((int(.41 * S), int(.60 * S), int(.59 * S), int(.74 * S)), radius=w, outline=INK, width=w,
+                            fill=PAPER)
+        line([(.43, .67), (.57, .67)])
+        for a in range(-150, -29, 30):
+            r0, r1 = 0.27, 0.34
+            line([(0.5 + r0 * math.cos(math.radians(a)), 0.40 + r0 * math.sin(math.radians(a))),
+                  (0.5 + r1 * math.cos(math.radians(a)), 0.40 + r1 * math.sin(math.radians(a)))])
+    elif name == "brain":
+        for x, y, r in ((.40, .40, .13), (.58, .38, .14), (.36, .55, .12), (.62, .55, .13), (.50, .62, .12)):
+            circle(x, y, r, fill=MARK)
+        for x, y, r in ((.40, .40, .13), (.58, .38, .14), (.36, .55, .12), (.62, .55, .13), (.50, .62, .12)):
+            circle(x, y, r - 0.012, fill=MARK, outline=MARK)
+        line([(.50, .28), (.48, .42), (.53, .52), (.49, .70)])
+    elif name == "heart":
+        pts = []
+        for i in range(0, 361, 6):
+            t = math.radians(i)
+            pts.append((0.5 + 0.016 * 16 * math.sin(t) ** 3,
+                        0.47 - 0.016 * (13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t))))
+        d.polygon([(int(x * S), int(y * S)) for x, y in pts], fill=MARK)
+        line(pts)
+    elif name == "coin":
+        circle(0.56, 0.56, 0.20, fill=PAPER)
+        circle(0.44, 0.44, 0.20, fill=MARK)
+        line([(.44, .33), (.44, .55)])
+        line([(.50, .39), (.40, .39), (.38, .44), (.50, .45), (.50, .50), (.38, .50)])
+    elif name == "clock":
+        circle(0.5, 0.5, 0.26, fill=MARK)
+        line([(.5, .5), (.5, .32)])
+        line([(.5, .5), (.62, .56)])
+    elif name == "book":
+        d.polygon([(int(x * S), int(y * S)) for x, y in ((.20, .34), (.50, .40), (.50, .72), (.20, .66))], fill=MARK)
+        line([(.20, .34), (.50, .40), (.80, .34), (.80, .66), (.50, .72), (.20, .66), (.20, .34)])
+        line([(.50, .40), (.50, .72)])
+        line([(.58, .46), (.73, .43)])
+        line([(.58, .54), (.73, .51)])
+    elif name == "people":
+        person(0.36, 0.26, 1.0)
+        person(0.64, 0.26, 1.0)
+        line([(.48, .41), (.52, .41)], fill=MARK, width=w * 2)
+    elif name == "star":
+        pts = []
+        for i in range(11):
+            r = 0.27 if i % 2 == 0 else 0.11
+            a = math.radians(-90 + i * 36)
+            pts.append((0.5 + r * math.cos(a), 0.5 + r * math.sin(a)))
+        d.polygon([(int(x * S), int(y * S)) for x, y in pts], fill=MARK)
+        line(pts)
+    elif name == "mountain":
+        line([(.14, .74), (.42, .30), (.56, .52), (.66, .40), (.86, .74), (.14, .74)])
+        line([(.42, .30), (.42, .16)])
+        d.polygon([(int(x * S), int(y * S)) for x, y in ((.42, .16), (.55, .20), (.42, .25))], fill=MARK)
+    elif name == "target":
+        for r, f in ((.27, PAPER), (.18, MARK), (.08, PAPER)):
+            circle(0.48, 0.52, r, fill=f)
+        line([(.48, .52), (.78, .22)])
+        line([(.70, .22), (.78, .22), (.78, .30)])
+    elif name == "plant":
+        line([(.5, .74), (.5, .36)])
+        for sx in (-1, 1):
+            pts = [(.5, .50), (.5 + sx * .10, .40), (.5 + sx * .22, .40), (.5 + sx * .12, .52), (.5, .50)]
+            d.polygon([(int(x * S), int(y * S)) for x, y in pts], fill=MARK)
+            line(pts)
+        line([(.34, .74), (.66, .74)])
+        line([(.38, .74), (.42, .86), (.58, .86), (.62, .74)])
+    else:  # thinker: a person with an idea
+        person(0.42, 0.34, 1.0, arms="up")
+        circle(0.68, 0.24, 0.09, fill=MARK)
+        circle(0.57, 0.36, 0.022, fill=INK)
+    return img.resize((size, size), Image.LANCZOS)
+
+
+def _doodle_image(path, icon, size=600):
+    """The AI drawing on paper (its white turned into the paper colour), or the built-in icon."""
+    from PIL import ImageChops, ImageOps
+
+    if path:
+        try:
+            art = ImageOps.fit(Image.open(path).convert("RGB"), (size, size), Image.LANCZOS)
+            return ImageChops.multiply(art, Image.new("RGB", (size, size), PAPER))
+        except OSError:
+            pass
+    return _icon(icon, size)
+
+
+def _paper_lines(draw, lines, font, x0, x1, y, line_h, hot=()):
+    """Centred dark text; key words sit on a marker-yellow stroke."""
+    for line in lines:
+        x = x0 + ((x1 - x0) - _width(draw, line, font)) / 2
+        for tok, start in line:
+            word = tok.rstrip()
+            if any(i in hot for i in range(start, start + len(word))):
+                w = draw.textlength(word, font=font)
+                draw.rounded_rectangle((x - 8, y + line_h * 0.12, x + w + 8, y + line_h * 0.92), radius=10, fill=MARK)
+            draw.text((x, y), word, font=font, fill=INK)
+            x += draw.textlength(tok, font=font)
+        y += line_h
+
+
+def _paper_text(img, text, highlight, box, make_font, sizes, spacing=1.35):
+    draw = ImageDraw.Draw(img)
+    x0, y0, x1, y1 = box
+    tokens = _tokens(text)
+    for size in sizes:
+        font = make_font(size)
+        lines = _wrap(draw, tokens, font, x1 - x0)
+        line_h = int(size * spacing)
+        if line_h * len(lines) <= y1 - y0:
+            break
+    y = y0 + ((y1 - y0) - line_h * len(lines)) // 2
+    _paper_lines(draw, lines, font, x0, x1, y, line_h, _hot(text, highlight))
+
+
+def _paper_frame(index, total):
+    """Blank paper slide with the account name and the slide counter."""
+    W, H = 1080, 1350
+    img = Image.new("RGB", (W, H), PAPER)
+    draw = ImageDraw.Draw(img)
+    small = _font(config.FONTS_DIR / "Montserrat-Variable.ttf", 30, "Bold")
+    draw.text((70, 70), config.BRAND_HANDLE, font=small, fill=SOFT, anchor="lm")
+    draw.text((W - 70, 70), f"{index}/{total}", font=small, fill=SOFT, anchor="rm")
+    return img
+
+
+def lesson_cover(headline, highlight, art, icon, total, out_path):
+    """First slide: the doodle and the big title, with a swipe hint."""
+    img = _paper_frame(1, total)
+    img.paste(_doodle_image(art, icon, 560), (260, 120))
+    _paper_text(img, headline, highlight, (80, 700, 1000, 1180), _hfont, range(96, 43, -4), spacing=1.22)
+    draw = ImageDraw.Draw(img)
+    draw.text((540, 1262), l10n.t("swipe"), font=_bfont(36, "Bold"), fill=SOFT, anchor="mm")
+    return save_jpeg(img, out_path)
+
+
+def lesson_slide(number, text, highlight, art, icon, index, total, out_path):
+    """A lesson slide: its number, the doodle, and one short point."""
+    img = _paper_frame(index, total)
+    draw = ImageDraw.Draw(img)
+    draw.ellipse((480, 120, 600, 240), fill=MARK)
+    draw.text((540, 180), str(number), font=_font(config.FONTS_DIR / "Anton-Regular.ttf", 72), fill=INK, anchor="mm")
+    img.paste(_doodle_image(art, icon, 520), (280, 260))
+    _paper_text(img, text, highlight, (90, 810, 990, 1260), _bfont, range(60, 31, -4))
+    return save_jpeg(img, out_path)
+
+
+def lesson_follow(index, total, out_path):
+    """Last slide: follow now, or you won't find this again."""
+    W = 1080
+    img = _paper_frame(index, total)
+    draw = ImageDraw.Draw(img)
+    small, big, sub = l10n.t("learn_follow")
+    img.paste(_icon("star", 300), (390, 130))
+    draw.text((W // 2, 520), small, font=_fit_line(draw, small, _bfont, 50, W - 160), fill=INK, anchor="mm")
+    _paper_text(img, big, big, (90, 580, 990, 860), _hfont, range(104, 47, -4), spacing=1.25)
+    handle = config.BRAND_HANDLE
+    font = _fit_line(draw, handle, lambda s: _font(config.FONTS_DIR / "Anton-Regular.ttf", s), 96, W - 240)
+    hw = draw.textlength(handle, font=font)
+    draw.rounded_rectangle((W / 2 - hw / 2 - 40, 900, W / 2 + hw / 2 + 40, 1040), radius=30, fill=INK)
+    draw.text((W // 2, 970), handle, font=font, fill=MARK, anchor="mm")
+    draw.text((W // 2, 1120), sub, font=_fit_line(draw, sub, _bfont, 40, W - 160), fill=INK, anchor="mm")
+    draw.text((W // 2, 1220), l10n.t("actions"), font=_bfont(34, "Bold"), fill=SOFT, anchor="mm")
+    return save_jpeg(img, out_path)
