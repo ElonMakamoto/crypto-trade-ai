@@ -27,6 +27,18 @@ TEXT = {
                               "Japanese": "👉 最新の自然災害情報は {handle} をフォロー"},
     "follow_line_trending": {"English": "👉 Follow {handle} for daily news", "Korean": "👉 매일 뉴스는 {handle} 팔로우",
                              "Japanese": "👉 毎日のニュースは {handle} をフォロー"},
+    # (small line, big line, sub line) of the last slide of a learning post
+    "learn_follow": {"English": ("DON'T LOSE THIS PAGE", "FOLLOW NOW OR YOU'LL NEVER SEE THIS AGAIN",
+                                 "New lessons every week — only followers see them"),
+                     "Korean": ("이 계정, 놓치지 마세요", "지금 팔로우 안 하면 다시는 못 봐요",
+                                "새로운 배움은 팔로워에게만 보여요"),
+                     "Japanese": ("このアカウント、見失わないで", "今フォローしないと二度と見られません",
+                                  "新しい学びはフォロワーだけに届きます")},
+    "learn_follow_line": {"English": "👉 Follow {handle} now — or you'll never find these lessons again",
+                          "Korean": "👉 지금 {handle} 팔로우 안 하면 이런 글, 다시는 못 봐요",
+                          "Japanese": "👉 今 {handle} をフォローしないと、この学びは二度と見られません"},
+    "save_line": {"English": "📌 Save this post to read it again", "Korean": "📌 저장해두고 다시 읽어보세요",
+                  "Japanese": "📌 保存してまた読み返してください"},
     "source": {"English": "📰 Source: {source}", "Korean": "📰 출처: {source}", "Japanese": "📰 出典: {source}"},
 }
 

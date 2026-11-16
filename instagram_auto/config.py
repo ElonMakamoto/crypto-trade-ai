@@ -33,7 +33,8 @@ DEFAULTS = {
     "GEMINI_MODEL": "gemini-2.5-flash",
     # "world" = the biggest world news incl. natural disasters, "disasters" = natural disasters only,
     # "trending" = all top stories (incl. entertainment and sports)
-    "NEWS_FOCUS": "world",
+    # "learn" = a 10-slide lesson post (psychology, money and habits, life lessons, science and history)
+    "NEWS_FOCUS": "learn",
     "NEWS_COUNTRY": "US",
     "NEWS_LANGUAGE": "en",
     "POST_LANGUAGE": "English",
@@ -89,6 +90,16 @@ def _switch_to_world_news(saved):
     return saved
 
 
+def _switch_to_learning(saved):
+    """One-time move of every install to the learning posts (posts only, no reels); later choices are kept."""
+    if saved and not saved.get("LEARN_SWITCHED"):
+        saved["LEARN_SWITCHED"] = "1"
+        saved["NEWS_FOCUS"] = "learn"
+        save_settings(saved)
+        saved = load_settings()
+    return saved
+
+
 def save_settings(values):
     import secure_store
 
@@ -107,7 +118,7 @@ def current():
 
 def reload():
     """(Re)compute module settings: saved app settings > environment > defaults."""
-    saved = _switch_to_world_news(load_settings())
+    saved = _switch_to_learning(_switch_to_world_news(load_settings()))
     g = globals()
     for key, default in DEFAULTS.items():
         g[key] = (saved.get(key) or os.environ.get(key) or default).strip()
@@ -128,7 +139,7 @@ CHANNELS = {
     "ja": {"name": "日本語", "language": "Japanese", "tz": "Asia/Seoul", "tz_label": "한국시간", "news": ("ja", "JP")},
 }
 CHANNEL_DEFAULTS = {"ENABLED": "", "IG_USER_ID": "", "BRAND_HANDLE": "@yourpage",
-                    "POST_TIMES": "09:00,12:00,15:00,18:00,21:00", "POST_MODE": "alternate",
+                    "POST_TIMES": "09:00,12:00,15:00,18:00,21:00", "POST_MODE": "post",
                     # optional: a token just for this channel's account (empty = the shared token)
                     "CHANNEL_TOKEN": ""}
 ACTIVE_CHANNEL = None

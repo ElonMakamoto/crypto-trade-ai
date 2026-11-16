@@ -180,6 +180,69 @@ def stock_video_scenes(scenes, pick, details, workdir):
     return out
 
 
+LESSON_SLIDES = 8  # cover + 8 lessons + follow slide = 10 images (a carousel's maximum)
+
+
+def learned(state):
+    """Titles of the learning posts already made."""
+    return [k[6:] for k in state.get("posted", []) if k.startswith("learn:")]
+
+
+def run_learn(state, stamp, workdir, dry_run, poster, story, check):
+    """One learning post: a topic (picked in the app, or the AI's next idea), 10 doodle slides, posted as a carousel."""
+    if story:
+        topic = story["title"]
+        print(f"[main] chosen topic: {topic}")
+    else:
+        ideas = ai.learn_topics(config.POST_LANGUAGE, 6, avoid=learned(state))
+        done = set(state.get("posted", []))
+        ideas = [s for s, _ in ideas if s["key"] not in done]
+        if not ideas:
+            print("[main] no new topic idea this round")
+            return []
+        topic = ideas[0]["title"]
+        print(f"[main] topic for {config.POST_LANGUAGE} readers: {topic}")
+    check()
+    lesson = ai.write_lesson(topic, LESSON_SLIDES)
+    slides = lesson["slides"]
+    total = len(slides) + 2
+    tags, seen = [], set()
+    for tag in lesson.get("hashtags", []):
+        tag = re.sub(r"[^\w]", "", str(tag).lstrip("#"))
+        if tag and tag.lower() not in seen:
+            seen.add(tag.lower())
+            tags.append("#" + tag)
+    caption = (f"{space_sentences(str(lesson.get('caption', '')))}\n\n{l10n.t('save_line')}\n"
+               f"{l10n.t('learn_follow_line', handle=config.BRAND_HANDLE)}\n\n{' '.join(tags[:HASHTAGS])}").strip()[:2200]
+    (workdir / "post_caption.txt").write_text(caption, encoding="utf-8")
+    check()
+    art = ai.doodle(lesson.get("cover_draw"), workdir / "doodle-1.png")
+    media = [render.lesson_cover(lesson["headline"], lesson.get("highlight"), art, "thinker", total,
+                                 workdir / f"post-{stamp}-01.jpg")]
+    for i, sl in enumerate(slides, start=1):
+        check()
+        art = ai.doodle(sl.get("draw"), workdir / f"doodle-{i + 1}.png")
+        media.append(render.lesson_slide(i, str(sl["text"]), sl.get("highlight"), art, str(sl.get("icon", "")),
+                                         i + 1, total, workdir / f"post-{stamp}-{i + 1:02d}.jpg"))
+    media.append(render.lesson_follow(total, total, workdir / f"post-{stamp}-{total:02d}.jpg"))
+    print(f"[main] post ({len(media)} slides): {lesson['headline']}")
+    if not dry_run:
+        check()  # last chance to stop before it goes online
+        if poster is None:
+            poster = __import__("poster").get_poster()
+        try:
+            code = poster.post_album(media, caption)
+            print(f"[main] uploaded post: {code}")
+            state["posted"].append("learn:" + topic)
+            state["last_kind"] = "post"
+        except Exception as e:
+            print(f"[main] upload of post failed: {e}")
+    state["runs"] = state.get("runs", 0) + 1
+    state["last_run"] = stamp
+    save_state(state)
+    return media
+
+
 def run_once(dry_run=False, poster=None, only=None, story=None, cancel=None):
     """One round: returns the list of media files made. only="reel"/"post" forces that kind; story (a news item
     picked in the app's trending list) makes the post about that story instead of choosing one; cancel (a
@@ -194,6 +257,9 @@ def run_once(dry_run=False, poster=None, only=None, story=None, cancel=None):
     workdir = config.OUTPUT_DIR / stamp
     workdir.mkdir(parents=True, exist_ok=True)
 
+    if config.NEWS_FOCUS == "learn" or (story and story.get("learn")):
+        return run_learn(state, stamp, workdir, dry_run, poster, story, check)
+    only = "post"  # reels are gone: every round makes one carousel post
     if only:
         kinds = [only]
     elif config.POST_MODE == "alternate":

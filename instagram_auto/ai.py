@@ -481,3 +481,129 @@ def pick_and_write(stories, n, skip_ids):
     except (requests.RequestException, KeyError, ValueError) as e:
         print(f"[ai] Gemini failed ({e}) — using raw headlines")
     return _fallback(candidates, n)
+
+
+# ---------------------------------------------------------------- learning posts ("something to learn")
+LEARN_CATEGORIES = ("psychology and human relationships", "money, success and daily habits",
+                    "life lessons and famous quotes", "science and history facts that surprise people")
+LEARN_ICONS = ("bulb", "brain", "heart", "coin", "clock", "book", "people", "star", "mountain", "target", "plant",
+               "thinker")
+LEARN_STYLE = {
+    "English": "Plain, warm, conversational English. Short sentences. No hype words.",
+    "Korean": "자연스러운 한국어로 직접 쓰세요(번역투 금지). 친근한 해요체, 짧은 문장. '그/그녀', '~에 의해', "
+              "'~것이다' 같은 표현은 쓰지 마세요.",
+    "Japanese": "自然な日本語で直接書いてください（直訳調は禁止）。親しみやすい です・ます調、短い文。",
+}
+LEARN_TOPICS_PROMPT = """You plan posts for an Instagram page that teaches one useful thing per post, for
+{audience_lang}-speaking readers. Suggest {n} post ideas people would save and share, mixing these areas evenly:
+{areas}.
+Each idea is a list-style lesson ("7 signs...", "habits that...", "what ... teaches you about ..."), specific, not
+generic. Only well-established knowledge: no invented studies, statistics or quotes.
+Do NOT repeat or rephrase any of these already-posted topics:
+{avoid}
+
+Respond with JSON only: {{"topics": [{{"topic": "<the post title in {audience_lang}>",
+"en": "<the same idea in one short English line>"}}]}}"""
+
+LESSON_PROMPT = """You write a carousel post for an Instagram page that teaches one useful thing per post.
+Topic: {topic}
+Language: write EVERYTHING the reader sees in {lang}. {style}
+
+Return:
+- "headline": the cover title in {lang}, max 12 words, makes people want to swipe (no clickbait lies)
+- "highlight": 1-3 words of the headline to mark (exact substring)
+- "slides": exactly {n} slides, one clear point each, in an order that builds up. For each:
+    "text": 1-2 short sentences in {lang}, max 24 words, concrete and useful on its own
+    "highlight": 1-3 key words of that text (exact substring)
+    "icon": the best fitting one of: {icons}
+    "draw": 6-12 ENGLISH words describing a very simple doodle for this point (e.g. "stick figure watering a small
+            plant"), no text or letters in the drawing
+- "cover_draw": the same kind of English doodle description for the cover
+- "caption": 3-4 sentences in {lang} that sum up the lesson and invite people to save the post, 1-2 emojis
+- "hashtags": 5 hashtags without '#', the way {lang}-speaking Instagram users search
+
+Only true, well-established knowledge. Never invent studies, numbers or quotes; a quote only with its real author.
+Respond with JSON only:
+{{"headline": "...", "highlight": ["..."], "cover_draw": "...", "slides": [{{"text": "...", "highlight": ["..."],
+"icon": "...", "draw": "..."}}], "caption": "...", "hashtags": ["..."]}}"""
+
+
+def learn_topics(language, n=10, avoid=()):
+    """[(story, English one-liner)] post ideas for a channel; story = {"title", "key", "learn": True}."""
+    if not config.GOOGLE_API_KEY:
+        raise ValueError("Google API 키가 필요합니다 (⚙ 설정).")
+    data = _gemini(LEARN_TOPICS_PROMPT.format(
+        audience_lang=language, n=n, areas="; ".join(LEARN_CATEGORIES),
+        avoid="\n".join(f"- {t}" for t in list(avoid)[-60:]) or "- (none yet)"))
+    out = []
+    for t in data.get("topics", []):
+        title = str(t.get("topic", "")).strip()
+        if title:
+            out.append(({"title": title, "key": "learn:" + title, "learn": True, "source": ""},
+                        str(t.get("en") or title)))
+    return out[:n]
+
+
+def write_lesson(topic, n=8):
+    """The whole carousel for one topic: headline, n lesson slides, caption, hashtags."""
+    if not config.GOOGLE_API_KEY:
+        raise ValueError("Google API 키가 필요합니다 (⚙ 설정).")
+    lang = config.POST_LANGUAGE
+    for attempt in range(2):
+        data = _gemini(LESSON_PROMPT.format(topic=topic, lang=lang, n=n, icons=", ".join(LEARN_ICONS),
+                                            style=LEARN_STYLE.get(lang, LEARN_STYLE["English"])))
+        slides = [sl for sl in data.get("slides", []) if str(sl.get("text", "")).strip()][:n]
+        if data.get("headline") and len(slides) >= n - 2:
+            data["slides"] = slides
+            return data
+        print(f"[ai] lesson came back with {len(slides)} slides — asking again")
+    raise ValueError("AI가 슬라이드를 충분히 만들지 못했어요. 다시 시도해 주세요.")
+
+
+_image_model = None
+
+
+def _doodle_model():
+    """A Gemini model that can draw (name contains 'image'), or '' if this key has none."""
+    global _image_model
+    if _image_model is None:
+        try:
+            r = requests.get(f"{GEMINI_API}/models", headers=_headers(), params={"pageSize": 200}, timeout=30)
+            r.raise_for_status()
+            names = [m["name"].split("/", 1)[1] for m in r.json().get("models", [])
+                     if "generateContent" in m.get("supportedGenerationMethods", []) and "image" in m["name"]
+                     and "flash" in m["name"]]
+            _image_model = max(names, key=lambda n: [int(x) for x in re.findall(r"\d+", n)[:2]]) if names else ""
+        except (requests.RequestException, ValueError, KeyError):
+            _image_model = ""
+    return _image_model
+
+
+def doodle(description, dest):
+    """A simple hand-drawn illustration for a slide, saved to dest; None if the key can't draw (the slide then
+    gets a built-in line icon)."""
+    global _image_model
+    model = config.GOOGLE_API_KEY and description and _doodle_model()
+    if not model:
+        return None
+    prompt = (f"A very simple hand-drawn doodle: {description}. Thick black marker lines on a plain pure white "
+              "background, minimal stick-figure style, one small touch of yellow, lots of empty space, centred, "
+              "square image. Absolutely no text, letters, numbers or captions in the image.")
+    try:
+        r = requests.post(f"{GEMINI_API}/models/{model}:generateContent", headers=_headers(), timeout=120,
+                          json={"contents": [{"parts": [{"text": prompt}]}],
+                                "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}})
+        if r.status_code in (400, 403, 404):  # this key can't use the drawing model: stop trying this run
+            print(f"[ai] drawing model {model} not usable (HTTP {r.status_code}) — using built-in icons")
+            _image_model = ""
+            return None
+        r.raise_for_status()
+        import base64
+
+        for part in r.json()["candidates"][0]["content"]["parts"]:
+            if "inlineData" in part:
+                dest.write_bytes(base64.b64decode(part["inlineData"]["data"]))
+                return dest
+    except (requests.RequestException, KeyError, IndexError, ValueError) as e:
+        print(f"[ai] doodle failed ({e}) — using a built-in icon")
+    return None
