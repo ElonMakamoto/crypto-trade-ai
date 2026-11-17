@@ -345,7 +345,9 @@ class ChannelPanel:
         self.status = tk.StringVar()
         ttk.Label(frame, textvariable=self.status, style="Status.TLabel", wraplength=500).grid(
             row=2, column=0, sticky="w", pady=(8, 6))
-        self._build_news(frame)
+        self.news_list = None
+        if not learning():  # learning posts: the app picks the topic itself, no list to choose from
+            self._build_news(frame)
         # one row of large thumbnails, scrolled sideways; a click opens the big viewer
         strip = ttk.Frame(frame)
         strip.grid(row=4, column=0, sticky="ew", pady=(6, 0))
@@ -365,7 +367,8 @@ class ChannelPanel:
         self.log.grid(row=5, column=0, sticky="nsew", pady=(6, 0))
         self.show_preview([])
         self.refresh()
-        self.app.root.after(500 + 4000 * list(config.CHANNELS).index(cid), self.load_news)
+        if self.news_list is not None:
+            self.app.root.after(500 + 4000 * list(config.CHANNELS).index(cid), self.load_news)
 
     # ----- this channel's top-10 news
     NEWS_REFRESH_MS = 60 * 60 * 1000
@@ -406,6 +409,8 @@ class ChannelPanel:
             self.news_menu.tk_popup(event.x_root, event.y_root)
 
     def picked_story(self):
+        if self.news_list is None:
+            return None
         sel = self.news_list.curselection()
         return self.news[sel[0]][0] if sel and sel[0] < len(self.news) else None
 
