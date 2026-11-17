@@ -7,6 +7,7 @@
 """
 import argparse
 import json
+import random
 import re
 import time
 from datetime import datetime, timezone
@@ -205,6 +206,12 @@ def run_learn(state, stamp, workdir, dry_run, poster, story, check):
     check()
     lesson = ai.write_lesson(topic, LESSON_SLIDES)
     slides = lesson["slides"]
+    render.use_palette()
+    # the drawing style the AI chose for this topic, but never the same as the last post's
+    style = str(lesson.get("art_style", "")).strip().lower()
+    if style not in ai.ART_STYLES or style == state.get("last_style"):
+        style = random.choice([s for s in ai.ART_STYLES if s != state.get("last_style")])
+    print(f"[main] drawing style: {style}")
     total = len(slides) + 2
     tags, seen = [], set()
     for tag in lesson.get("hashtags", []):
@@ -216,12 +223,12 @@ def run_learn(state, stamp, workdir, dry_run, poster, story, check):
                f"{l10n.t('learn_follow_line', handle=config.BRAND_HANDLE)}\n\n{' '.join(tags[:HASHTAGS])}").strip()[:2200]
     (workdir / "post_caption.txt").write_text(caption, encoding="utf-8")
     check()
-    art = ai.doodle(lesson.get("cover_draw"), workdir / "doodle-1.png")
+    art = ai.doodle(lesson.get("cover_draw"), workdir / "doodle-1.png", style)
     media = [render.lesson_cover(lesson["headline"], lesson.get("highlight"), art, "thinker", total,
                                  workdir / f"post-{stamp}-01.jpg")]
     for i, sl in enumerate(slides, start=1):
         check()
-        art = ai.doodle(sl.get("draw"), workdir / f"doodle-{i + 1}.png")
+        art = ai.doodle(sl.get("draw"), workdir / f"doodle-{i + 1}.png", style)
         media.append(render.lesson_slide(i, str(sl["text"]), sl.get("highlight"), art, str(sl.get("icon", "")),
                                          i + 1, total, workdir / f"post-{stamp}-{i + 1:02d}.jpg"))
     media.append(render.lesson_follow(total, total, workdir / f"post-{stamp}-{total:02d}.jpg"))
@@ -234,6 +241,7 @@ def run_learn(state, stamp, workdir, dry_run, poster, story, check):
             code = poster.post_album(media, caption)
             print(f"[main] uploaded post: {code}")
             state["posted"].append("learn:" + topic)
+            state["last_style"] = style
             state["last_kind"] = "post"
         except Exception as e:
             print(f"[main] upload of post failed: {e}")

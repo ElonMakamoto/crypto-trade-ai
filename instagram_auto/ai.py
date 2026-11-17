@@ -488,6 +488,18 @@ LEARN_CATEGORIES = ("psychology and human relationships", "money, success and da
                     "life lessons and famous quotes", "science and history facts that surprise people")
 LEARN_ICONS = ("bulb", "brain", "heart", "coin", "clock", "book", "people", "star", "mountain", "target", "plant",
                "thinker")
+# drawing styles for the slide illustrations: each post gets one (the AI picks what suits the topic; the app makes
+# sure the style changes from post to post)
+ART_STYLES = {
+    "stickman": "minimal stick-figure doodle, thick black marker lines, one small colour accent",
+    "cute": "cute kawaii cartoon, soft rounded shapes, simple pastel colours, thin dark outlines",
+    "flat": "modern flat vector illustration, simple geometric shapes, 3-4 bright colours, no outlines",
+    "sketch": "pencil sketch, loose hand-drawn hatching, black and grey with a little colour",
+    "watercolor": "soft watercolor illustration, gentle colour washes, light ink outlines",
+    "comic": "bold comic-book style, thick black ink outlines, flat bright colours, expressive",
+    "lineart": "elegant single-line continuous line art drawing, black line only",
+    "retro": "retro 1960s mid-century illustration, muted warm colours, simple textured shapes",
+}
 LEARN_STYLE = {
     "English": "Plain, warm, conversational English. Short sentences. No hype words.",
     "Korean": "자연스러운 한국어로 직접 쓰세요(번역투 금지). 친근한 해요체, 짧은 문장. '그/그녀', '~에 의해', "
@@ -519,12 +531,13 @@ Return:
     "draw": 6-12 ENGLISH words describing a very simple doodle for this point (e.g. "stick figure watering a small
             plant"), no text or letters in the drawing
 - "cover_draw": the same kind of English doodle description for the cover
+- "art_style": the drawing style that suits this topic best, one of: {styles}
 - "caption": 3-4 sentences in {lang} that sum up the lesson and invite people to save the post, 1-2 emojis
 - "hashtags": 5 hashtags without '#', the way {lang}-speaking Instagram users search
 
 Only true, well-established knowledge. Never invent studies, numbers or quotes; a quote only with its real author.
 Respond with JSON only:
-{{"headline": "...", "highlight": ["..."], "cover_draw": "...", "slides": [{{"text": "...", "highlight": ["..."],
+{{"headline": "...", "highlight": ["..."], "cover_draw": "...", "art_style": "...", "slides": [{{"text": "...", "highlight": ["..."],
 "icon": "...", "draw": "..."}}], "caption": "...", "hashtags": ["..."]}}"""
 
 
@@ -551,6 +564,7 @@ def write_lesson(topic, n=8):
     lang = config.POST_LANGUAGE
     for attempt in range(2):
         data = _gemini(LESSON_PROMPT.format(topic=topic, lang=lang, n=n, icons=", ".join(LEARN_ICONS),
+                                            styles=", ".join(ART_STYLES),
                                             style=LEARN_STYLE.get(lang, LEARN_STYLE["English"])))
         slides = [sl for sl in data.get("slides", []) if str(sl.get("text", "")).strip()][:n]
         if data.get("headline") and len(slides) >= n - 2:
@@ -579,16 +593,17 @@ def _doodle_model():
     return _image_model
 
 
-def doodle(description, dest):
+def doodle(description, dest, style="stickman"):
     """A simple hand-drawn illustration for a slide, saved to dest; None if the key can't draw (the slide then
     gets a built-in line icon)."""
     global _image_model
     model = config.GOOGLE_API_KEY and description and _doodle_model()
     if not model:
         return None
-    prompt = (f"A very simple hand-drawn doodle: {description}. Thick black marker lines on a plain pure white "
-              "background, minimal stick-figure style, one small touch of yellow, lots of empty space, centred, "
-              "square image. Absolutely no text, letters, numbers or captions in the image.")
+    look = ART_STYLES.get(style, ART_STYLES["stickman"])
+    prompt = (f"A simple illustration: {description}. Style: {look}. On a plain pure white background (no scenery "
+              "behind it), lots of empty space, centred, square image. Absolutely no text, letters, numbers or "
+              "captions in the image.")
     try:
         r = requests.post(f"{GEMINI_API}/models/{model}:generateContent", headers=_headers(), timeout=120,
                           json={"contents": [{"parts": [{"text": prompt}]}],

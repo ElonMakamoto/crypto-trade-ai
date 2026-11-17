@@ -100,6 +100,20 @@ def _switch_to_learning(saved):
     return saved
 
 
+# the channels' Instagram handles (set once on every install; they can still be edited in the settings)
+HANDLES = {"en": "@world_wisdom_psy", "ko": "@world_wisdom8282", "ja": "@world_wisdom_jp"}
+
+
+def _set_handles(saved):
+    if saved and not saved.get("HANDLES_SET"):
+        saved["HANDLES_SET"] = "1"
+        save_settings(saved)
+        for cid, handle in HANDLES.items():
+            save_channel(cid, {**load_channel(cid), "BRAND_HANDLE": handle})
+        saved = load_settings()
+    return saved
+
+
 def save_settings(values):
     import secure_store
 
@@ -118,7 +132,7 @@ def current():
 
 def reload():
     """(Re)compute module settings: saved app settings > environment > defaults."""
-    saved = _switch_to_learning(_switch_to_world_news(load_settings()))
+    saved = _set_handles(_switch_to_learning(_switch_to_world_news(load_settings())))
     g = globals()
     for key, default in DEFAULTS.items():
         g[key] = (saved.get(key) or os.environ.get(key) or default).strip()
@@ -150,7 +164,7 @@ def load_channel(cid, saved=None):
     """A channel's settings; the English channel starts from the single-account settings of older versions."""
     saved = load_settings() if saved is None else saved
     channels = saved.get("CHANNELS") if isinstance(saved.get("CHANNELS"), dict) else {}
-    values = dict(CHANNEL_DEFAULTS)
+    values = dict(CHANNEL_DEFAULTS, BRAND_HANDLE=HANDLES.get(cid, CHANNEL_DEFAULTS["BRAND_HANDLE"]))
     if cid == "en":
         values["ENABLED"] = "1"
         if cid not in channels:

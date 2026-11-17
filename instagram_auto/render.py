@@ -307,7 +307,19 @@ def reel_frame(slide_path, out_path, size=(1080, 1920)):
 
 # ---------------------------------------------------------------- learning posts: paper slides with a doodle
 PAPER, INK, SOFT = (247, 242, 232), (28, 26, 24), (150, 142, 128)
-MARK = (255, 214, 64)  # marker-yellow behind the key words and inside the doodles
+MARK = (255, 214, 64)  # marker colour behind the key words and inside the doodles
+# each channel's own background (paper) and marker colour, so the three accounts look different at a glance
+PALETTES = {
+    "en": ((255, 226, 112), (255, 255, 255), (120, 98, 30)),   # yellow paper, white marker
+    "ko": ((206, 229, 250), (255, 226, 112), (82, 104, 128)),  # pastel blue paper, yellow marker
+    "ja": ((252, 218, 230), (255, 255, 255), (138, 92, 108)),  # pastel pink paper, white marker
+}
+
+
+def use_palette(channel=None):
+    """Switch the learning-post colours to this channel's palette."""
+    global PAPER, MARK, SOFT
+    PAPER, MARK, SOFT = PALETTES.get(channel or getattr(config, "CHANNEL", ""), PALETTES["en"])
 
 
 def _icon(name, size=600):
@@ -420,7 +432,13 @@ def _doodle_image(path, icon, size=600):
     if path:
         try:
             art = ImageOps.fit(Image.open(path).convert("RGB"), (size, size), Image.LANCZOS)
-            return ImageChops.multiply(art, Image.new("RGB", (size, size), PAPER))
+            # the drawing's white background becomes the slide's paper; its own colours stay true
+            r, g, b = art.split()
+            whiteness = ImageChops.darker(ImageChops.darker(r, g), b)
+            alpha = whiteness.point(lambda v: max(0, min(255, (255 - v) * 5)))
+            paper = Image.new("RGB", (size, size), PAPER)
+            paper.paste(art, (0, 0), alpha)
+            return paper
         except OSError:
             pass
     return _icon(icon, size)
