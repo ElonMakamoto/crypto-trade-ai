@@ -536,6 +536,7 @@ Return:
 - "hashtags": 5 hashtags without '#', the way {lang}-speaking Instagram users search
 
 Only true, well-established knowledge. Never invent studies, numbers or quotes; a quote only with its real author.
+Inside the text values never use the double-quote character (use single quotes ' or 「」 instead).
 Respond with JSON only:
 {{"headline": "...", "highlight": ["..."], "cover_draw": "...", "art_style": "...", "slides": [{{"text": "...", "highlight": ["..."],
 "icon": "...", "draw": "..."}}], "caption": "...", "hashtags": ["..."]}}"""
@@ -545,9 +546,14 @@ def learn_topics(language, n=10, avoid=()):
     """[(story, English one-liner)] post ideas for a channel; story = {"title", "key", "learn": True}."""
     if not config.GOOGLE_API_KEY:
         raise ValueError("Google API 키가 필요합니다 (⚙ 설정).")
-    data = _gemini(LEARN_TOPICS_PROMPT.format(
+    prompt = LEARN_TOPICS_PROMPT.format(
         audience_lang=language, n=n, areas="; ".join(LEARN_CATEGORIES),
-        avoid="\n".join(f"- {t}" for t in list(avoid)[-60:]) or "- (none yet)"))
+        avoid="\n".join(f"- {t}" for t in list(avoid)[-60:]) or "- (none yet)")
+    try:
+        data = _gemini(prompt)
+    except json.JSONDecodeError as e:
+        print(f"[ai] topic ideas were not valid JSON ({e}) — asking again")
+        data = _gemini(prompt)
     out = []
     for t in data.get("topics", []):
         title = str(t.get("topic", "")).strip()
@@ -562,10 +568,15 @@ def write_lesson(topic, n=8):
     if not config.GOOGLE_API_KEY:
         raise ValueError("Google API 키가 필요합니다 (⚙ 설정).")
     lang = config.POST_LANGUAGE
-    for attempt in range(2):
-        data = _gemini(LESSON_PROMPT.format(topic=topic, lang=lang, n=n, icons=", ".join(LEARN_ICONS),
-                                            styles=", ".join(ART_STYLES),
-                                            style=LEARN_STYLE.get(lang, LEARN_STYLE["English"])))
+    for attempt in range(3):
+        try:
+            data = _gemini(LESSON_PROMPT.format(topic=topic, lang=lang, n=n, icons=", ".join(LEARN_ICONS),
+                                                styles=", ".join(ART_STYLES),
+                                                style=LEARN_STYLE.get(lang, LEARN_STYLE["English"])))
+        except json.JSONDecodeError as e:
+            # the AI sometimes breaks its own JSON (e.g. a "quote" inside a sentence): just ask again
+            print(f"[ai] lesson answer was not valid JSON ({e}) — asking again")
+            continue
         slides = [sl for sl in data.get("slides", []) if str(sl.get("text", "")).strip()][:n]
         if data.get("headline") and len(slides) >= n - 2:
             data["slides"] = slides
