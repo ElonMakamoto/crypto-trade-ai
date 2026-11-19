@@ -37,7 +37,7 @@ TEXT = {
     "learn_follow_line": {"English": "👉 Follow {handle} now — or you'll never find these lessons again",
                           "Korean": "👉 지금 {handle} 팔로우 안 하면 이런 글, 다시는 못 봐요",
                           "Japanese": "👉 今 {handle} をフォローしないと、この学びは二度と見られません"},
-    "save_line": {"English": "📌 Save this post to read it again", "Korean": "📌 저장해두고 다시 읽어보세요",
+    "save_line": {"English": "📌 Save this to watch it again", "Korean": "📌 저장해두고 다시 읽어보세요",
                   "Japanese": "📌 保存してまた読み返してください"},
     "source": {"English": "📰 Source: {source}", "Korean": "📰 출처: {source}", "Japanese": "📰 出典: {source}"},
 }

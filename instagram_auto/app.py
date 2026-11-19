@@ -332,7 +332,8 @@ class ChannelPanel:
         self.auto_btn = ttk.Button(controls, text="▶ 자동 시작", style="Accent.TButton", command=self.toggle_auto)
         self.auto_btn.pack(side="left")
         self.buttons = [self.auto_btn]
-        for text, kw in [("🖼 게시물 올리기", {"only": "post"}), ("👁 미리보기", {"dry_run": True})]:
+        for text, kw in [("🎬 릴스 올리기" if learning() else "🖼 게시물 올리기", {"only": "post"}),
+                         ("👁 미리보기", {"dry_run": True})]:
             btn = ttk.Button(controls, text=text, command=lambda kw=kw: self.run_now(**kw))
             btn.pack(side="left", padx=(6, 0))
             self.buttons.append(btn)
@@ -665,7 +666,7 @@ class App:
         head = ttk.Frame(outer)
         head.pack(fill="x", pady=(0, 10))
         ttk.Label(head, text="📰 " + APP_NAME, style="Title.TLabel").pack(side="left")
-        ttk.Label(head, text="  English · 한국어 · 日本語 — 배울 거리 그림 슬라이드 10장을 각 계정에", foreground="#666").pack(side="left")
+        ttk.Label(head, text="  English · 한국어 · 日本語 — 배울 거리 그림 릴스(6장 × 5초)를 각 계정에", foreground="#666").pack(side="left")
         ttk.Button(head, text="⚙ 설정", style="Accent.TButton", command=lambda: SettingsWindow(self)).pack(side="right")
         ttk.Label(head, text=f"버전 {app_version()}   ").pack(side="right")
         # fallback when the automatic update can't replace the .exe (e.g. no write permission)

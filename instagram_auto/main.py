@@ -181,7 +181,8 @@ def stock_video_scenes(scenes, pick, details, workdir):
     return out
 
 
-LESSON_SLIDES = 8  # cover + 8 lessons + follow slide = 10 images (a carousel's maximum)
+LESSON_SLIDES = 4  # cover + 4 lessons + follow slide = 6 scenes
+LESSON_SECONDS = 5  # each scene of the learning reel stays up this long
 
 
 def learned(state):
@@ -190,7 +191,7 @@ def learned(state):
 
 
 def run_learn(state, stamp, workdir, dry_run, poster, story, check):
-    """One learning post: a topic (picked in the app, or the AI's next idea), 10 doodle slides, posted as a carousel."""
+    """One learning reel: a topic (picked in the app, or the AI's next idea), 6 doodle slides of 5 seconds each."""
     if story:
         topic = story["title"]
         print(f"[main] chosen topic: {topic}")
@@ -232,23 +233,27 @@ def run_learn(state, stamp, workdir, dry_run, poster, story, check):
         media.append(render.lesson_slide(i, str(sl["text"]), sl.get("highlight"), art, str(sl.get("icon", "")),
                                          i + 1, total, workdir / f"post-{stamp}-{i + 1:02d}.jpg"))
     media.append(render.lesson_follow(total, total, workdir / f"post-{stamp}-{total:02d}.jpg"))
-    print(f"[main] post ({len(media)} slides): {lesson['headline']}")
+    # the slides become a 9:16 reel, 5 seconds a slide (the slide colour fills the space above and below)
+    frames = [render.lesson_reel_frame(p, p.with_name(p.stem + "-9x16.jpg")) for p in media]
+    video = reel.slideshow([(f, LESSON_SECONDS) for f in frames], workdir / f"reel-{stamp}.mp4", workdir)
+    cover = frames[0]
+    print(f"[main] reel ({len(frames)} scenes x {LESSON_SECONDS} s): {lesson['headline']}")
     if not dry_run:
         check()  # last chance to stop before it goes online
         if poster is None:
             poster = __import__("poster").get_poster()
         try:
-            code = poster.post_album(media, caption)
-            print(f"[main] uploaded post: {code}")
+            code = poster.post_reel(video, caption, cover)
+            print(f"[main] uploaded reel: {code}")
             state["posted"].append("learn:" + topic)
             state["last_style"] = style
-            state["last_kind"] = "post"
+            state["last_kind"] = "reel"
         except Exception as e:
-            print(f"[main] upload of post failed: {e}")
+            print(f"[main] upload of reel failed: {e}")
     state["runs"] = state.get("runs", 0) + 1
     state["last_run"] = stamp
     save_state(state)
-    return media
+    return media + [video]
 
 
 def run_once(dry_run=False, poster=None, only=None, story=None, cancel=None):
