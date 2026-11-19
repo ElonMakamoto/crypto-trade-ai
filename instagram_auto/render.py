@@ -488,8 +488,6 @@ def lesson_cover(headline, highlight, art, icon, total, out_path):
     img = _paper_frame(1, total)
     img.paste(_doodle_image(art, icon, 560), (260, 120))
     _paper_text(img, headline, highlight, (80, 700, 1000, 1180), _hfont, range(96, 43, -4), spacing=1.22)
-    draw = ImageDraw.Draw(img)
-    draw.text((540, 1262), l10n.t("swipe"), font=_bfont(36, "Bold"), fill=SOFT, anchor="mm")
     return save_jpeg(img, out_path)
 
 
@@ -521,3 +519,12 @@ def lesson_follow(index, total, out_path):
     draw.text((W // 2, 1120), sub, font=_fit_line(draw, sub, _bfont, 40, W - 160), fill=INK, anchor="mm")
     draw.text((W // 2, 1220), l10n.t("actions"), font=_bfont(34, "Bold"), fill=SOFT, anchor="mm")
     return save_jpeg(img, out_path)
+
+
+def lesson_reel_frame(slide_path, out_path, size=(1080, 1920)):
+    """A 4:5 learning slide on a 9:16 reel frame: the slide in the middle, its own colour above and below."""
+    W, H = size
+    slide = Image.open(slide_path).convert("RGB")
+    frame = Image.new("RGB", (W, H), PAPER)
+    frame.paste(slide, (0, (H - slide.height) // 2))
+    return save_jpeg(frame, out_path)

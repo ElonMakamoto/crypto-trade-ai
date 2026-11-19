@@ -532,7 +532,7 @@ Return:
             plant"), no text or letters in the drawing
 - "cover_draw": the same kind of English doodle description for the cover
 - "art_style": the drawing style that suits this topic best, one of: {styles}
-- "caption": 3-4 sentences in {lang} that sum up the lesson and invite people to save the post, 1-2 emojis
+- "caption": 3-4 sentences in {lang} that sum up the lesson and invite people to save the reel, 1-2 emojis
 - "hashtags": 5 hashtags without '#', the way {lang}-speaking Instagram users search
 
 Only true, well-established knowledge. Never invent studies, numbers or quotes; a quote only with its real author.
