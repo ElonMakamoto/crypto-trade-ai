@@ -549,12 +549,12 @@ class ChannelPanel:
         clock change can't skip a slot."""
         _local.channel = self.cid
         tz = self.meta["tz"]
-        self.next_run = timeslots.next_slot(timeslots.parse(self.settings()["POST_TIMES"]), tz)
+        self.next_run = timeslots.next_slot(timeslots.parse(self.settings()["POST_TIMES"]), tz, seed=self.cid)
         self.set_status()
         while not self.stop_event.is_set() and self.next_run:
             if timeslots.now(tz) >= self.next_run:
                 self.round()
-                self.next_run = timeslots.next_slot(timeslots.parse(self.settings()["POST_TIMES"]), tz)
+                self.next_run = timeslots.next_slot(timeslots.parse(self.settings()["POST_TIMES"]), tz, seed=self.cid)
                 self.set_status()
             elif self.stop_event.wait(30):
                 break
