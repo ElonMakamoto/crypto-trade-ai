@@ -37,19 +37,33 @@ def now(tz_name):
     return datetime.now(zone(tz_name))
 
 
-def next_slot(times, tz_name, after=None):
-    """The first upload time strictly after `after` (default: now) in the zone, or None if no times are set."""
+JITTER_MINUTES = 60  # each upload happens at a random moment up to this long before or after the chosen time
+
+
+def jittered(date, hour, minute, tz, seed=""):
+    """The chosen time on that date moved by a random -60..+60 minutes. The same date, time and seed always give
+    the same moment, so the plan doesn't change when it is worked out again."""
+    import random
+
+    base = datetime(date.year, date.month, date.day, hour, minute, tzinfo=tz)
+    shift = random.Random(f"{seed}|{date.isoformat()}|{hour:02d}:{minute:02d}").randint(
+        -JITTER_MINUTES * 60, JITTER_MINUTES * 60)
+    return base + timedelta(seconds=shift)
+
+
+def next_slot(times, tz_name, after=None, seed=""):
+    """The first upload moment strictly after `after` (default: now) in the zone, or None if no times are set.
+    Each chosen time is shifted by a random -60..+60 minutes (different per day and per channel `seed`), so the
+    uploads don't land on the same minute every day."""
     if not times:
         return None
     tz = zone(tz_name)
     after = after or datetime.now(tz)
-    for day in (0, 1, 2):
-        date = (after + timedelta(days=day)).date()
-        for hour, minute in times:
-            slot = datetime(date.year, date.month, date.day, hour, minute, tzinfo=tz)
-            if slot > after:
-                return slot
-    return None
+    start = after.astimezone(tz).date()
+    moments = [jittered(start + timedelta(days=day), hour, minute, tz, seed)
+               for day in (-1, 0, 1, 2) for hour, minute in times]
+    later = [m for m in moments if m > after]
+    return min(later) if later else None
 
 
 def describe(slot, tz_label):
