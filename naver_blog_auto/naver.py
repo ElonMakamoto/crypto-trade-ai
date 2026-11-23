@@ -430,6 +430,9 @@ def fill(editor, title, blocks):
                 print(f"   ⚠ 사진을 못 올렸어요: {str(e).splitlines()[0][:100]}")
         else:
             methods.add(editor.add_text(block["html"], block["text"]))
+            if block.get("alone"):  # a heading: the following text starts on its own new line
+                editor.page.keyboard.press("End")
+                editor.page.keyboard.press("Enter")
     return methods, n_images
 
 

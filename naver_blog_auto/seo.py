@@ -16,6 +16,7 @@ BANNED = [
     r"많은 분들이 궁금해", r"분들 많으시죠", r"도움이 되셨(?:길|으면)", r"공감.{0,6}댓글", r"이웃\s?추가",
     r"획기적인", r"혁신적인", r"필수적인", r"완벽한", r"게임\s?체인저", r"중요한 역할을 합니다",
     r"라고 할 수 있습니다", r"무조건", r"100%", r"마무리하며", r"결론적으로",
+    r"살펴보(?:겠습니다|도록 하겠습니다)", r"정리해 보겠습니다", r"에 대해 자세히", r"는 점을 기억", r"꼭 참고하시",
 ]
 BANNED_RE = [re.compile(p) for p in BANNED]
 
@@ -66,7 +67,7 @@ def chars(text, spaces=False):
 
 def keyword_range(n_chars):
     """How many times the main keyword should appear for a body of n_chars (no spaces)."""
-    return max(3, n_chars // 600), max(8, n_chars // 250)
+    return max(3, n_chars // 700), max(7, n_chars // 300)
 
 
 def analyze(post, keyword, must=(), length="auto", n_images=None):

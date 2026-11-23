@@ -161,10 +161,18 @@ def trending():
     return [x["title"] for x in _rss_titles("https://trends.google.com/trending/rss?geo=KR", 20)]
 
 
-def news(query, limit=10):
-    """Recent Korean news headlines about the query (Google News), used as fresh source material."""
-    return _rss_titles(f"https://news.google.com/rss/search?q={quote(query + ' when:60d')}&hl=ko&gl=KR&ceid=KR:ko",
-                       limit)
+def news(query, limit=10, days=14):
+    """Recent Korean news headlines about the query (Google News), newest first; used as fresh source material."""
+    items = _rss_titles(
+        f"https://news.google.com/rss/search?q={quote(query + f' when:{days}d')}&hl=ko&gl=KR&ceid=KR:ko", limit)
+    if not items and days < 60:
+        items = news(query, limit, 60)
+    return items
+
+
+def top_news(limit=20):
+    """Today's top stories in Korea (Google News front page)."""
+    return [x["title"] for x in _rss_titles("https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko", limit)]
 
 
 # ---------------------------------------------------------------- related searches, merged
