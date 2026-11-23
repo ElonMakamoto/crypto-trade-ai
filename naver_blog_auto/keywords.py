@@ -206,3 +206,20 @@ def merge(keyword, naver, naver_rel, google):
     ranked = [shown[k] for k in sorted(scores, key=lambda k: -scores[k])]
     return {"naver": list(OrderedDict.fromkeys(naver + naver_rel)), "google": list(OrderedDict.fromkeys(google)),
             "ranked": ranked[:20]}
+
+
+NAVER_ARTICLE = re.compile(r"https?://n\.news\.naver\.com/(?:mnews/)?article/\d+/\d+|"
+                           r"https?://(?:m\.)?entertain\.naver\.com/(?:now/)?article/\d+/\d+|"
+                           r"https?://(?:m\.)?sports\.news\.naver\.com/[^\"'\s]*?oid=\d+[^\"'\s]*?aid=\d+")
+
+
+def naver_news_articles(query, limit=10):
+    """News articles about the query from Naver News search (newest first): Naver's own article pages (uniform
+    photos and outlet names) plus the outlets' original links."""
+    r = _get("https://search.naver.com/search.naver", params={"where": "news", "query": query, "sort": "1"})
+    if not r:
+        return []
+    page = html.unescape(r.text)
+    links = [m.group(0) for m in NAVER_ARTICLE.finditer(page)]
+    links += re.findall(r'href="(https?://[^"]+)"[^>]*class="[^"]*news_tit', page)
+    return list(OrderedDict.fromkeys(links))[:limit]

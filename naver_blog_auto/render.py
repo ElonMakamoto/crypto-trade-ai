@@ -13,25 +13,28 @@ def inline(text):
 HEADING_STYLE = "font-size:24px;font-weight:bold;"
 
 
+CENTER = "text-align:center;"
+
+
 def heading_html(text):
-    """Every heading the same: big and bold (pasted on its own so it never picks up the text around it)."""
+    """Every heading the same: big, bold and centered (pasted on its own so it never picks up the text around it)."""
     plain = re.sub(r"\*\*(.+?)\*\*", r"\1", str(text))
-    return f'<p><span style="{HEADING_STYLE}"><b>{html.escape(plain)}</b></span></p>'
+    return f'<p style="{CENTER}"><span style="{HEADING_STYLE}"><b>{html.escape(plain)}</b></span></p>'
 
 
-BODY_STYLE = "font-size:16px;font-weight:normal;"
+BODY_STYLE = "font-size:19px;font-weight:normal;"
 
 
 def para_html(text):
     # an explicit normal style, so body text never takes on the big bold of the heading above it
-    return f'<p><span style="{BODY_STYLE}">{inline(text)}</span></p>'
+    return f'<p style="{CENTER}"><span style="{BODY_STYLE}">{inline(text)}</span></p>'
 
 
 GAP = "<p><br></p>"
 
 
 def caption_html(text):
-    return f'<p><span style="color:#888888;font-size:13px;">▲ {inline(text)}</span></p>'
+    return f'<p style="text-align:center;"><span style="color:#888888;font-size:13px;">▲ {inline(text)}</span></p>'
 
 
 class Builder:
@@ -176,7 +179,8 @@ def story_blocks(post, images, related_post=None, outlets=()):
     sources = ", ".join(outlets) or "각 방송사"
     footer = [f"본문 글 이미지 출처 : {sources}", "모든 이미지 저작권은 방송사 각 SNS에 있습니다",
               "무단 전재, 재배포 및 AI학습 이용 금지"]
-    b.text("".join(f'<p><span style="{FOOTER_STYLE}">{html.escape(x)}</span></p>' for x in footer), "\n".join(footer))
+    b.text("".join(f'<p style="{CENTER}"><span style="{FOOTER_STYLE}">{html.escape(x)}</span></p>' for x in footer),
+           "\n".join(footer))
     return b.blocks
 
 

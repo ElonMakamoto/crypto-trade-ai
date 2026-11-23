@@ -380,18 +380,6 @@ def middle_sections(n_sections, k):
     return sorted(set(picks))
 
 
-def photo(query, dest, source, style, heading, rnd):
-    """A real photo for the query (web), else an AI drawing; None if neither works."""
-    made = None
-    if query and source in (config.AUTO, "stock"):
-        made = stock_photo(query, dest.with_suffix(".jpg"), rnd)
-        if not made and len(query.split()) > 2:  # too specific: try the first words
-            made = stock_photo(" ".join(query.split()[:2]), dest.with_suffix(".jpg"), rnd)
-    if not made and source in (config.AUTO, "ai"):
-        made = ai_image(query, heading, style, dest.with_suffix(".jpg"))
-    return made
-
-
 def make(post, keyword, account, out_dir, seed=""):
     """Images for a post -> [{"path", "caption", "place"}]. A real photo about the post at the very top, photos in
     the middle sections, the summary card, and a real photo at the very end. place: "top", ("section", i),
@@ -415,26 +403,49 @@ def make(post, keyword, account, out_dir, seed=""):
     def dest():
         return out_dir / f"{base}_{len(out) + 1}"
 
-    top = photo(photos.get("top") or fallback_query, dest(), source, style, post["title"], rnd)
+    news_pool = None
+
+    def real_photo(query, heading):
+        """(path, caption): a free photo, else a photo from a news article about the keyword, else an AI drawing."""
+        nonlocal news_pool
+        made = None
+        if query and source in (config.AUTO, "stock"):
+            made = stock_photo(query, dest().with_suffix(".jpg"), rnd)
+            if not made and len(query.split()) > 2:
+                made = stock_photo(" ".join(query.split()[:2]), dest().with_suffix(".jpg"), rnd)
+        if made:
+            return made, ""
+        if source in (config.AUTO, "stock"):
+            if news_pool is None:
+                print("   무료 사진이 부족해서 네이버 뉴스 기사 사진을 찾아요")
+                news_pool = collect_story_photos(news_photo_sources(keyword, 8), out_dir, base, want=6)
+            if news_pool:
+                item = news_pool.pop(0)
+                return item["path"], f"출처: {item['outlet']}"
+        if source in (config.AUTO, "ai"):
+            made = ai_image(query, heading, style, dest().with_suffix(".jpg"))
+        return made, ""
+
+    top, top_caption = real_photo(photos.get("top") or fallback_query, post["title"])
     if not top:  # no photo found: the designed title card
         top = title_card(post.get("thumbnail_title") or post["title"], keyword, style, rnd,
                          dest().with_suffix(".png"), account.get("NICKNAME", ""), hue)
-    out.append({"path": top, "caption": "", "place": "top"})
+    out.append({"path": top, "caption": top_caption, "place": "top"})
     for number, i in enumerate(middle_sections(len(sections), n_images - 3), 1):
         sec = sections[i]
         image = sec.get("image", {})
         query = (photos.get("middle") if number == 1 else "") or image.get("query_en")
-        made = photo(query, dest(), source, style, sec["heading"], rnd)
+        made, news_caption = real_photo(query, sec["heading"])
         if not made:
             points = image.get("points") or [re.sub(r"\*\*", "", p)[:60] for p in sec.get("paragraphs", [])[:2]]
             made = section_card(number, sec["heading"], points, style, rnd, dest().with_suffix(".png"), hue)
-        out.append({"path": made, "caption": image.get("caption", ""), "place": ("section", i)})
+        out.append({"path": made, "caption": news_caption or image.get("caption", ""), "place": ("section", i)})
     summary = post.get("summary") or [s["heading"] for s in sections[:4]]
     out.append({"path": summary_card(summary, keyword, style, rnd, dest().with_suffix(".png"), hue), "caption": "",
                 "place": "summary"})
-    end = photo(photos.get("end") or photos.get("top") or fallback_query, dest(), source, style, post["title"], rnd)
+    end, end_caption = real_photo(photos.get("end") or photos.get("top") or fallback_query, post["title"])
     if end:
-        out.append({"path": end, "caption": "", "place": "end"})
+        out.append({"path": end, "caption": end_caption, "place": "end"})
     print(f"   사진 {sum(1 for o in out if str(o['path']).endswith('.jpg'))}장 + 카드 "
           f"{sum(1 for o in out if str(o['path']).endswith('.png'))}장")
     return out
@@ -447,27 +458,41 @@ SKIP_IMG = re.compile(r"logo|icon|banner|btn|button|sprite|blank|profile|reporte
 STORY_MAX = 10
 
 
+def _meta(page, *names):
+    """content of the first <meta property|name=...> among names (attribute order doesn't matter)."""
+    from html import unescape
+
+    for name in names:
+        for tag in re.findall(r"<meta\b[^>]*>", page, re.I):
+            if re.search(rf'(?:property|name)\s*=\s*["\']{re.escape(name)}["\']', tag, re.I):
+                m = re.search(r'content\s*=\s*["\']([^"\']+)', tag, re.I)
+                if m:
+                    return unescape(m.group(1)).strip()
+    return ""
+
+
 def article_images(url, limit=4):
-    """A news article's photos: og:image first, then large photos in the article. -> (outlet_url, title, [urls])"""
+    """A news article's photos: og:image first, then large photos in the article.
+    -> (final_url, title, outlet_name, [image urls])"""
     from html import unescape
     from urllib.parse import urljoin
 
     try:
         r = requests.get(url, timeout=20, headers=BROWSER_HEADERS, allow_redirects=True)
         if not r.ok:
-            return url, "", []
+            return url, "", "", []
         page = r.text
     except requests.RequestException:
-        return url, "", []
+        return url, "", "", []
     final = r.url
-    meta = lambda prop: re.search(  # noqa: E731
-        rf'<meta[^>]+(?:property|name)=["\']{prop}["\'][^>]+content=["\']([^"\']+)', page, re.I)
-    title = unescape(meta("og:title").group(1)) if meta("og:title") else ""
-    found = [unescape(meta("og:image").group(1))] if meta("og:image") else []
-    for src in re.findall(r'<img[^>]+(?:data-src|src)=["\']([^"\']+\.(?:jpe?g|png|webp)[^"\']*)', page, re.I):
+    title = _meta(page, "og:title", "twitter:title")
+    outlet = _meta(page, "og:article:author", "twitter:creator", "og:site_name", "article:publisher")
+    found = [x for x in (_meta(page, "og:image", "twitter:image"),) if x]
+    for src in re.findall(r'<img[^>]+(?:data-src|src)\s*=\s*["\']([^"\']+?\.(?:jpe?g|png|webp)[^"\']*)', page, re.I):
         if not SKIP_IMG.search(src):
             found.append(urljoin(final, unescape(src)))
-    return final, title, list(dict.fromkeys(found))[:limit]
+    found = [("https:" + u if u.startswith("//") else u) for u in found]
+    return final, title, outlet, list(dict.fromkeys(found))[:limit]
 
 
 def _ahash(img):
@@ -482,19 +507,24 @@ def collect_story_photos(sources, dest_dir, base, want=12):
     -> [{"path", "outlet", "title"}]"""
     import story
 
-    out, hashes = [], set()
+    out, hashes, tried, failed = [], set(), 0, 0
     for source in sources:
         if len(out) >= want:
             break
-        final, title, urls = article_images(source["uri"])
-        name = story.outlet(final if "grounding-api" not in final else source.get("title", ""))
-        for url in urls:
+        final, title, outlet_name, urls = article_images(source["uri"])
+        tried += 1
+        if not urls:
+            failed += 1
+            continue
+        name = outlet_name if outlet_name and not outlet_name.startswith("@") else ""
+        name = name or story.outlet(final if "grounding-api" not in final else source.get("title", ""))
+        for url in urls[:3]:
             try:
                 r = requests.get(url, timeout=20, headers=dict(BROWSER_HEADERS, Referer=final))
                 img = Image.open(BytesIO(r.content)).convert("RGB")
             except (requests.RequestException, OSError):
                 continue
-            if img.width < 600 or img.height < 340:
+            if img.width < 500 or img.height < 300:
                 continue
             h = _ahash(img)
             if h in hashes:
@@ -504,7 +534,17 @@ def collect_story_photos(sources, dest_dir, base, want=12):
             out.append({"path": path, "outlet": name, "title": title or source.get("title", "")})
             if len(out) >= want:
                 break
+    print(f"   기사 {tried}개 확인 → 사진 {len(out)}장" + (f" (사진 없는 기사 {failed}개)" if failed else ""))
+    if not out:
+        print("   ⚠ 기사 사진을 받지 못했어요. 인터넷 연결이나 기사 사이트 차단을 확인해 주세요.")
     return out
+
+
+def news_photo_sources(query, limit=10):
+    """Article pages to take photos from: Naver News search for the query."""
+    import keywords
+
+    return [{"title": "", "uri": u} for u in keywords.naver_news_articles(query, limit)]
 
 
 def assign_story_photos(post, photos):
@@ -550,8 +590,9 @@ def make_story(post, keyword, account, out_dir, sources, seed=""):
     -> [{"path", "caption", "place"}]; place: "top", ("section", i), ("section_mid", i)."""
     rnd = random.Random(f"{keyword}|{seed}")
     base = slug(keyword)
-    print("🖼 기사 사진 모으는 중...")
-    photos = collect_story_photos(sources, out_dir, base)
+    print("🖼 기사 사진 모으는 중 (네이버 뉴스 + 조사한 기사)...")
+    pages = news_photo_sources(keyword, 10) + list(sources)
+    photos = collect_story_photos(pages, out_dir, base)
     plan = assign_story_photos(post, photos)
     out = []
 

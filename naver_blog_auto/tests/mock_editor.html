@@ -66,6 +66,7 @@ content.addEventListener('paste', e => {
   let last = null;
   box.querySelectorAll('p').forEach(p => {
     const q = document.createElement('p'); q.className = 'se-text-paragraph'; q.innerHTML = p.innerHTML;
+    if (p.getAttribute('style')) q.setAttribute('style', p.getAttribute('style'));
     comp.appendChild(q); last = q;
   });
   const empty = comp.querySelector('.se-text-paragraph');
