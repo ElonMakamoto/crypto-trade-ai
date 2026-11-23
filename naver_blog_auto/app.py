@@ -528,7 +528,7 @@ class AccountPanel:
                                                               "#c00000"))
         except Exception as e:
             print(f"❌ 실패: {e}\n")
-            if not isinstance(e, (gemini.GeminiError, naver.EditorError, ValueError)):
+            if not isinstance(e, (gemini.GeminiError, naver.EditorError, ValueError, requests.RequestException)):
                 print(traceback.format_exc() + "\n")
         finally:
             self.set_working(False)

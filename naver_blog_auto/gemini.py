@@ -63,50 +63,98 @@ def _detail(r):
         return r.text[:300]
 
 
-def _post(model, body, timeout=240):
-    return requests.post(f"{API}/models/{model}:generateContent", headers=_headers(), json=body, timeout=timeout)
+def _thinking(model):
+    """Keep 'thinking' short: newer Flash models otherwise think for minutes before answering."""
+    if re.search(r"gemini-2\.5-flash", model):
+        return {"thinkingBudget": 0}
+    if re.search(r"gemini-([3-9]|\d\d)", model):
+        return {"thinkingLevel": "low"}
+    return None
 
 
-def _call(body, timeout=240):
-    """Send a request to the configured model, switching model or waiting when needed."""
-    model = config.load_common()["GEMINI_MODEL"] or "gemini-2.5-flash"
-    try:
-        r = _post(model, body, timeout)
-    except requests.Timeout:
-        other = best_flash(lite=True, exclude=(model,))
-        if not other:
-            raise GeminiError(f"{model} 응답이 너무 느려요. 잠시 뒤 다시 시도해 주세요.")
-        print(f"[AI] {model} 응답이 느려서 {other}로 다시 요청합니다")
-        model, r = other, _post(other, body, timeout)
-    if r.status_code == 404:
-        # the saved model was retired: switch to the newest Flash model and remember it
-        newer = best_flash()
-        if not newer:
-            raise GeminiError("사용할 수 있는 Gemini 모델이 없습니다.")
-        print(f"[AI] {model} 모델이 없어져서 {newer}로 바꿉니다")
-        config.save_common({"GEMINI_MODEL": newer})
-        model, r = newer, _post(newer, body, timeout)
-    for wait in (10, 30, 60):
-        if r.status_code not in (429, 500, 503):
-            break
-        print(f"[AI] Gemini가 바쁘거나 무료 한도에 걸렸어요 (HTTP {r.status_code}) — {wait}초 후 다시 시도")
-        time.sleep(wait)
-        r = _post(model, body, timeout)
-    if r.status_code in (429, 500, 503):
-        other = best_flash(lite="lite" not in model, exclude=(model,))
+_no_thinking_config = set()  # models that refused the thinking setting
+
+
+def _post(model, body, timeout=150):
+    body = json.loads(json.dumps(body))
+    config_ = body.setdefault("generationConfig", {})
+    thinking = _thinking(model)
+    if thinking and model not in _no_thinking_config:
+        config_["thinkingConfig"] = thinking
+    r = requests.post(f"{API}/models/{model}:generateContent", headers=_headers(), json=body, timeout=timeout)
+    if r.status_code == 400 and "thinkingConfig" in config_ and "think" in r.text.lower():
+        _no_thinking_config.add(model)  # this model doesn't take the setting: ask again without it
+        del config_["thinkingConfig"]
+        r = requests.post(f"{API}/models/{model}:generateContent", headers=_headers(), json=body, timeout=timeout)
+    return r
+
+
+def _fallbacks(model):
+    """Other Flash models to try when one is slow or busy: the normal one, then the faster Lite one."""
+    out = []
+    for lite in (False, True):
+        try:
+            other = best_flash(lite=lite, exclude=(model, *out))
+        except (GeminiError, requests.RequestException):
+            other = None
         if other:
-            print(f"[AI] {model} 대신 이번에는 {other}로 요청합니다")
-            r = _post(other, body, timeout)
-    if not r.ok:
-        raise GeminiError(f"Gemini 오류 HTTP {r.status_code}: {_detail(r)}")
+            out.append(other)
+    return out
+
+
+def _call(body, timeout=150):
+    """Send a request, switching model, waiting or retrying when needed. Never hangs for long:
+    a slow or busy model is replaced by another Flash model (Lite last)."""
+    model = config.load_common()["GEMINI_MODEL"] or "gemini-2.5-flash"
+    queue_ = [model]
+    tried, last_error, busy_waits = [], "", (10, 30)
+    while queue_:
+        model = queue_.pop(0)
+        if model in tried:
+            continue
+        r = None
+        for attempt in range(len(busy_waits) + 1):
+            try:
+                r = _post(model, body, timeout)
+            except (requests.Timeout, requests.ConnectionError) as e:
+                last_error = "응답 시간 초과" if isinstance(e, requests.Timeout) else "연결 실패"
+                print(f"[AI] {model}: {last_error} — 다른 방법으로 다시 요청합니다")
+                r = None
+                break
+            if r.status_code not in (429, 500, 503) or attempt == len(busy_waits):
+                break
+            wait = busy_waits[attempt]
+            print(f"[AI] Gemini가 바쁘거나 무료 한도에 걸렸어요 (HTTP {r.status_code}) — {wait}초 후 다시 시도")
+            time.sleep(wait)
+        tried.append(model)
+        if r is not None and r.ok:
+            if model != config.load_common()["GEMINI_MODEL"] and r.elapsed.total_seconds() < 90:
+                # the saved model failed or was too slow and this one answered: use it from now on
+                print(f"[AI] 앞으로 {model} 모델을 씁니다")
+                config.save_common({"GEMINI_MODEL": model})
+            return _parts(r)
+        if r is not None and r.status_code == 404:
+            last_error = "모델 없음"
+            newer = _fallbacks(model)
+            if newer:
+                print(f"[AI] {model} 모델이 없어져서 {newer[0]}로 바꿉니다")
+                config.save_common({"GEMINI_MODEL": newer[0]})
+        elif r is not None and r.status_code not in (429, 500, 503):
+            raise GeminiError(f"Gemini 오류 HTTP {r.status_code}: {_detail(r)}")
+        elif r is not None:
+            last_error = f"HTTP {r.status_code}: {_detail(r)[:120]}"
+        queue_ += [m for m in _fallbacks(model) if m not in tried]
+    raise GeminiError(f"Gemini가 지금 답하지 않아요 ({last_error}). 잠시 뒤 다시 시도해 주세요.")
+
+
+def _parts(r):
     data = r.json()
     try:
-        parts = data["candidates"][0]["content"]["parts"]
+        return data["candidates"][0]["content"]["parts"]
     except (KeyError, IndexError):
         reason = (data.get("promptFeedback") or {}).get("blockReason") or data.get("candidates", [{}])[0].get(
             "finishReason", "?")
         raise GeminiError(f"Gemini가 답을 주지 않았어요 ({reason})")
-    return parts
 
 
 def _parse_json(text):
@@ -175,7 +223,7 @@ def draw(prompt, dest):
     body = {"contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}}
     try:
-        r = _post(model, body, timeout=180)
+        r = requests.post(f"{API}/models/{model}:generateContent", headers=_headers(), json=body, timeout=180)
         if r.status_code in (400, 403, 404, 429):
             print(f"[AI] 그림 모델을 쓸 수 없는 키예요 (HTTP {r.status_code}) — 다른 이미지로 대신합니다")
             _image_model = ""
