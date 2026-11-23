@@ -60,7 +60,7 @@ PC가 켜져 있는 동안만 동작합니다. 창은 최소화해 두면 되고
 
 ## 자동 업데이트
 
-`naver_blog_auto/`가 바뀌어 `main`에 머지되면 `.github/workflows/naver-blog-auto-windows.yml`이 Windows용 `.exe`를 빌드하고, 셀프 테스트(이미지·SEO·파서 + Edge로 가짜 SmartEditor에 실제로 입력/발행)를 통과하면 `naver-blog-auto-latest` 릴리스로 올립니다. 앱은 켤 때와 3시간마다 새 버전을 확인해 올리는 중인 글이 끝나면 스스로 교체·재시작합니다.
+`naver_blog_auto/`가 바뀌어 `main`에 머지되면 `.github/workflows/naver-blog-auto-windows.yml`이 Windows용 `.exe`를 빌드하고, 셀프 테스트(이미지·SEO·파서 + Edge로 가짜 SmartEditor에 실제로 입력/발행)를 통과하면 `naver-blog-auto-latest` 릴리스로 올립니다. 앱은 켤 때와 **1시간마다** 새 버전을 확인해, 올리는 중인 글이 끝나면 스스로 교체·재시작합니다 (자동 업로드 중이었으면 다시 켜진 상태로). 오른쪽 위 **🔄 업데이트 확인** 버튼으로 바로 확인·설치할 수도 있습니다. 설정·로그인·기록은 `%APPDATA%`에 있어서 업데이트해도 그대로입니다.
 
 ## 개발자용 (Python으로 실행)
 

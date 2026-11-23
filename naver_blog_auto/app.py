@@ -29,7 +29,7 @@ RELEASE_TAG = "naver-blog-auto-latest"
 EXE_NAME = "NaverBlogAuto.exe"
 DOWNLOAD_URL = f"https://github.com/{REPO}/releases/download/{RELEASE_TAG}/{EXE_NAME}"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-UPDATE_CHECK_MS = 3 * 3600 * 1000
+UPDATE_CHECK_MS = 1 * 3600 * 1000  # check GitHub for a new build every hour
 RANK_CHECK_MS = 6 * 3600 * 1000
 RETRY_MINUTES = 20
 
@@ -642,6 +642,7 @@ class App:
         ttk.Label(head, text="  네이버 블로그 2계정 · 한국어 SEO 글 + 사진 4~6장 자동 발행", foreground="#666").pack(side="left")
         ttk.Button(head, text="⚙ 공통 설정", style="Accent.TButton", command=lambda: CommonSettings(self)).pack(side="right")
         ttk.Label(head, text=f"버전 {app_version()}   ").pack(side="right")
+        ttk.Button(head, text="🔄 업데이트 확인", command=self.manual_update).pack(side="right", padx=(0, 6))
         self.update_btn = ttk.Button(head, text="새 버전 받기", command=lambda: webbrowser.open(DOWNLOAD_URL))
         body = ttk.Frame(outer)
         body.pack(fill="both", expand=True)
@@ -708,17 +709,27 @@ class App:
         self.root.after(RANK_CHECK_MS, self._schedule_rank_check)
 
     # ----- self-update (same as the Instagram app)
-    def check_update(self):
+    def manual_update(self):
+        threading.Thread(target=self.check_update, kwargs={"manual": True}, daemon=True).start()
+
+    def check_update(self, manual=False):
+        """Look for a newer build on GitHub; the packaged app installs it by itself and restarts."""
+        def tell(msg):
+            if manual:
+                self.root.after(0, lambda: messagebox.showinfo(APP_NAME, msg))
+
         current = app_version()
         if current == "dev":
-            return
+            return tell("개발 버전(소스 실행)이라 자동 업데이트는 .exe에서만 동작해요.")
         try:
             r = requests.get(f"https://api.github.com/repos/{REPO}/releases/tags/{RELEASE_TAG}", timeout=15)
             body = (r.json().get("body") or "") if r.ok else ""
         except (requests.RequestException, ValueError):
-            return
+            return tell("GitHub에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.")
         if not body.startswith("build:") or current in body:
-            return
+            return tell(f"최신 버전이에요 (버전 {current}).")
+        if manual:
+            print("⬆ 새 버전을 찾았어요. 받아서 다시 시작합니다 (올리는 중인 글이 있으면 끝난 뒤에).\n")
         if config.FROZEN and sys.platform == "win32":
             try:
                 self.install_update()
