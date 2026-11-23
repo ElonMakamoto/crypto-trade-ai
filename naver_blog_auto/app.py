@@ -134,6 +134,7 @@ class CommonSettings:
         row += 1
         buttons = ttk.Frame(f)
         buttons.grid(row=row, column=0, columnspan=3, sticky="e", pady=(14, 0))
+        ttk.Button(buttons, text="📁 카테고리 연결", command=lambda: CategoryMapWindow(app, top)).pack(side="left", padx=4)
         ttk.Button(buttons, text="저장", style="Accent.TButton", command=self.save).pack(side="left", padx=4)
         ttk.Button(buttons, text="닫기", command=top.destroy).pack(side="left")
 
@@ -161,6 +162,37 @@ class CommonSettings:
                                                                     parent=self.top))
 
         threading.Thread(target=check, daemon=True).start()
+
+
+class CategoryMapWindow:
+    """Which Naver blog category each app category posts into."""
+
+    def __init__(self, app, parent):
+        top = self.top = tk.Toplevel(parent)
+        top.title("카테고리 연결 — 앱 카테고리 → 네이버 블로그 카테고리")
+        top.transient(parent)
+        f = ttk.Frame(top, padding=14)
+        f.pack(fill="both", expand=True)
+        ttk.Label(f, text="네이버 블로그에 만들어 둔 카테고리 이름을 그대로 적으세요. 비우면 AI가 블로그 카테고리 중에서 골라요.",
+                  foreground="#666").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        current = config.category_map()
+        self.vars = {}
+        row = 1
+        for key, label in config.CHOICES["TOPIC"].items():
+            if key in (config.AUTO, "custom"):
+                continue
+            ttk.Label(f, text=label).grid(row=row, column=0, sticky="w", pady=2, padx=(0, 10))
+            var = self.vars[key] = tk.StringVar(value=current.get(key, ""))
+            ttk.Entry(f, textvariable=var, width=28).grid(row=row, column=1, sticky="w", pady=2)
+            row += 1
+        bar = ttk.Frame(f)
+        bar.grid(row=row, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        ttk.Button(bar, text="저장", style="Accent.TButton", command=self.save).pack(side="left", padx=4)
+        ttk.Button(bar, text="닫기", command=top.destroy).pack(side="left")
+
+    def save(self):
+        config.save_category_map({k: v.get() for k, v in self.vars.items()})
+        self.top.destroy()
 
 
 # ---------------------------------------------------------------- history / search ranks
@@ -253,6 +285,14 @@ class AccountPanel:
         self.login_label = ttk.Label(frame, text="", style="Status.TLabel")
         self.login_label.pack(fill="x", pady=(4, 6))
 
+        pick_row = ttk.Frame(frame)
+        pick_row.pack(fill="x", pady=(0, 6))
+        ttk.Label(pick_row, text="이번 글 카테고리", style="Status.TLabel").pack(side="left")
+        self.topic_box = choice_box(pick_row, "TOPIC", self.vars["TOPIC"], width=44)
+        self.topic_box.pack(side="left", padx=6)
+        self.topic_box.bind("<<ComboboxSelected>>", lambda e: self.save(quiet=True), add="+")
+        ttk.Label(pick_row, text="💕 = 연애 이슈 기사형",
+                  foreground="#666").pack(side="left")
         actions = ttk.Frame(frame)
         actions.pack(fill="x", pady=(0, 4))
         self.auto_btn = ttk.Button(actions, text="▶ 자동 시작", style="Accent.TButton", command=self.toggle_auto)

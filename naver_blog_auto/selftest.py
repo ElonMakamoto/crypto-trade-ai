@@ -67,6 +67,51 @@ def browser_test(blocks, tmp):
     return f"browser ok ({', '.join(sorted(methods))}; {n_images} images in order)"
 
 
+STORY_RAW = {
+    "keyword": "연애전쟁", "title": "이효리 \"제발 헤어져라\" 연애전쟁, 19커플 중 5커플 결국 이별한 이유",
+    "opening_image": {"who": "이효리", "query": "연애전쟁"},
+    "opening": [["\"제발 헤어져라\"", "이효리의 한마디였습니다."], ["그 커플은 어떤 선택을 했을까요."]],
+    "sections": [{"heading": f"소제목 {i}", "images": [{"who": "서장훈", "query": "연애전쟁"}],
+                  "chunks": [["짧은 줄 하나", "짧은 줄 둘"], ["다만 시즌2는 아직 공식 발표되지 않았습니다."]]}
+                 for i in range(1, 5)],
+    "question": "어떤 커플이 가장 기억에 남나요?", "tags": ["연애전쟁", "이효리", "서장훈", "JTBC", "연애예능"],
+}
+
+
+def story_browser_test(tmp):
+    """The 연애 story layout in the stand-in editor: quotation subtitles, captions, link card, footer."""
+    import config
+    import naver
+    import render
+    import story
+
+    post = story.normalize(STORY_RAW, "연애전쟁")
+    pics = []
+    for i, place in enumerate(["top"] + [("section", k) for k in range(4)]):
+        path = tmp / f"story{i}.jpg"
+        __import__("PIL.Image", fromlist=["Image"]).new("RGB", (800, 500), (180, 190, 200)).save(path)
+        pics.append({"path": path, "caption": "이효리 / 출처: 톱스타뉴스", "place": place})
+    blocks = render.story_blocks(post, pics, {"url": "https://blog.naver.com/me/223000000001", "title": "지난 글"},
+                                 ["톱스타뉴스"])
+    with naver.Session("selftest", headless=True) as s:
+        s.page.goto((config.BASE_DIR / "tests" / "mock_editor.html").resolve().as_uri())
+        editor = naver.Editor(s.page)
+        editor.wait_ready(timeout=20)
+        methods, n_images = naver.fill(editor, post["title"], blocks)
+        found = s.page.evaluate("""() => ({
+            quotes: [...document.querySelectorAll('.se-quotation')].map(q => q.innerText.trim()),
+            cards: document.querySelectorAll('.se-oglink').length,
+            text: document.querySelector('.se-content').innerText})""")
+    assert len(found["quotes"]) == 4 and "소제목 1" in found["quotes"][0], found["quotes"]
+    assert found["cards"] == 1, methods
+    for must in ("이효리 / 출처: 톱스타뉴스", "[함께보면 좋은 글]", "무단 전재, 재배포 및 AI학습 이용 금지"):
+        assert must in found["text"], must
+    assert n_images == 5
+    result = story.check(post, "연애전쟁")
+    assert result["checks"], result
+    return f"story ok ({', '.join(sorted(methods))}; 4 quote subtitles, link card, {n_images} images)"
+
+
 def run(report=None, browser=True):
     lines = []
     try:
@@ -115,6 +160,7 @@ def run(report=None, browser=True):
 
         if browser:
             lines.append(browser_test(blocks, tmp))
+            lines.append(story_browser_test(tmp))
         text = "OK\n" + "\n".join(lines)
         code = 0
     except Exception:

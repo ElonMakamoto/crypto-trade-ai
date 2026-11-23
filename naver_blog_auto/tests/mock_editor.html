@@ -14,6 +14,7 @@ body { font-family: sans-serif; margin: 0; }
 <!-- A stand-in for Naver's SmartEditor ONE with the same class names, used by the self-test only. -->
 <div class="toolbar">
   <button class="se-image-toolbar-button" type="button">사진</button>
+  <button class="se-insert-quotation-default-toolbar-button" type="button">인용구</button>
   <button class="save_btn__mock" type="button">저장</button>
   <button class="publish_btn__mock" type="button">발행</button>
   <input type="file" id="file" accept="image/*" style="display:none">
@@ -52,6 +53,14 @@ content.addEventListener('paste', e => {
   if (!html && !text) return;
   e.preventDefault();
   const comp = currentComponent();
+  if (!html && /^https?:\/\/\S+$/.test(text.trim())) {  // a link alone -> link card, like SmartEditor
+    const card = document.createElement('div'); card.className = 'se-component se-oglink'; card.contentEditable = 'false';
+    card.textContent = 'LINK ' + text.trim();
+    const next = document.createElement('div'); next.className = 'se-component se-text';
+    next.innerHTML = '<p class="se-text-paragraph"><br></p>';
+    comp.after(card); card.after(next); getSelection().removeAllRanges();
+    return;
+  }
   const box = document.createElement('div');
   box.innerHTML = html || text.split('\n').map(t => `<p>${t}</p>`).join('');
   let last = null;
@@ -63,6 +72,15 @@ content.addEventListener('paste', e => {
   if (empty && empty.innerText.trim() === '' && empty !== last) empty.remove();
   if (last) caretAtEnd(last);
 });
+document.querySelector('.se-insert-quotation-default-toolbar-button').onclick = () => {
+  const comp = currentComponent();
+  const q = document.createElement('div'); q.className = 'se-component se-quotation';
+  q.innerHTML = '<p class="se-text-paragraph se-quote">“ <span class="q"></span> ”</p>';
+  const next = document.createElement('div'); next.className = 'se-component se-text';
+  next.innerHTML = '<p class="se-text-paragraph"><br></p>';
+  comp.after(q); q.after(next);
+  caretAtEnd(q.querySelector('.q'));
+};
 document.querySelector('.se-image-toolbar-button').onclick = () => document.getElementById('file').click();
 document.getElementById('file').onchange = e => {
   const comp = currentComponent();

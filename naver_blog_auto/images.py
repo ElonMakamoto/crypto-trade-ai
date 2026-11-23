@@ -328,7 +328,12 @@ def stock_photo(query, dest, rnd):
     except (requests.RequestException, OSError):
         return None
     _remember(url)
+    global last_stock_source
+    last_stock_source = ("Pixabay" if "pixabay" in url else "Pexels" if "pexels" in url else "Openverse")
     return save_photo(img, dest)
+
+
+last_stock_source = ""
 
 
 def save_photo(img, dest):
@@ -432,4 +437,152 @@ def make(post, keyword, account, out_dir, seed=""):
         out.append({"path": end, "caption": "", "place": "end"})
     print(f"   사진 {sum(1 for o in out if str(o['path']).endswith('.jpg'))}장 + 카드 "
           f"{sum(1 for o in out if str(o['path']).endswith('.png'))}장")
+    return out
+
+
+# ---------------------------------------------------------------- story mode (연애 categories)
+BROWSER_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                                 "Chrome/131.0.0.0 Safari/537.36", "Accept-Language": "ko-KR,ko;q=0.9"}
+SKIP_IMG = re.compile(r"logo|icon|banner|btn|button|sprite|blank|profile|reporter|ad[_/-]|\.gif|\.svg", re.I)
+STORY_MAX = 10
+
+
+def article_images(url, limit=4):
+    """A news article's photos: og:image first, then large photos in the article. -> (outlet_url, title, [urls])"""
+    from html import unescape
+    from urllib.parse import urljoin
+
+    try:
+        r = requests.get(url, timeout=20, headers=BROWSER_HEADERS, allow_redirects=True)
+        if not r.ok:
+            return url, "", []
+        page = r.text
+    except requests.RequestException:
+        return url, "", []
+    final = r.url
+    meta = lambda prop: re.search(  # noqa: E731
+        rf'<meta[^>]+(?:property|name)=["\']{prop}["\'][^>]+content=["\']([^"\']+)', page, re.I)
+    title = unescape(meta("og:title").group(1)) if meta("og:title") else ""
+    found = [unescape(meta("og:image").group(1))] if meta("og:image") else []
+    for src in re.findall(r'<img[^>]+(?:data-src|src)=["\']([^"\']+\.(?:jpe?g|png|webp)[^"\']*)', page, re.I):
+        if not SKIP_IMG.search(src):
+            found.append(urljoin(final, unescape(src)))
+    return final, title, list(dict.fromkeys(found))[:limit]
+
+
+def _ahash(img):
+    small = img.convert("L").resize((8, 8))
+    pixels = list(small.getdata())
+    avg = sum(pixels) / 64
+    return "".join("1" if p > avg else "0" for p in pixels)
+
+
+def collect_story_photos(sources, dest_dir, base, want=12):
+    """Download the photos of the researched articles (deduplicated, big enough).
+    -> [{"path", "outlet", "title"}]"""
+    import story
+
+    out, hashes = [], set()
+    for source in sources:
+        if len(out) >= want:
+            break
+        final, title, urls = article_images(source["uri"])
+        name = story.outlet(final if "grounding-api" not in final else source.get("title", ""))
+        for url in urls:
+            try:
+                r = requests.get(url, timeout=20, headers=dict(BROWSER_HEADERS, Referer=final))
+                img = Image.open(BytesIO(r.content)).convert("RGB")
+            except (requests.RequestException, OSError):
+                continue
+            if img.width < 600 or img.height < 340:
+                continue
+            h = _ahash(img)
+            if h in hashes:
+                continue
+            hashes.add(h)
+            path = save_photo(img, dest_dir / f"{base}_src{len(out) + 1}.jpg")
+            out.append({"path": path, "outlet": name, "title": title or source.get("title", "")})
+            if len(out) >= want:
+                break
+    return out
+
+
+def assign_story_photos(post, photos):
+    """Which photo goes where, and who is in it (judged from the article it came from).
+    -> {"opening": (idx, who), "sections": [[(idx, who), ...], ...]}"""
+    slots = [("opening", post.get("opening_image", {}).get("who") or post.get("keyword", ""))]
+    for i, sec in enumerate(post.get("sections", [])):
+        for img in sec.get("images", [])[:2]:
+            slots.append((i, img.get("who") or post.get("keyword", "")))
+    slots = slots[:STORY_MAX]
+    plan = None
+    if photos:
+        try:
+            answer = gemini.generate_json(
+                "블로그 글에 넣을 사진을 자리마다 하나씩 골라 주세요. 사진은 아래 기사에서 나온 것입니다.\n"
+                f"사진 목록: {json.dumps([{'번호': i, '기사 제목': p['title'], '언론사': p['outlet']} for i, p in enumerate(photos)], ensure_ascii=False)}\n"
+                f"자리 목록: {json.dumps([{'자리': j, '섹션': (post['sections'][s]['heading'] if s != 'opening' else '도입'), '원하는 인물': who} for j, (s, who) in enumerate(slots)], ensure_ascii=False)}\n"
+                "같은 사진은 한 번만. 기사 제목으로 보아 그 자리에 맞는 사진을 고르고, 캡션에 쓸 '인물명'은 기사 제목에 "
+                "나온 이름이나 프로그램명으로 (사진 속 인물을 추측해서 단정하지 말 것). 맞는 사진이 없으면 -1.\n"
+                'JSON으로만: {"picks": [{"자리": 0, "번호": 0, "인물명": "..."}]}', temperature=0.2)
+            plan = {int(x["자리"]): (int(x["번호"]), str(x.get("인물명", "")).strip())
+                    for x in answer.get("picks", []) if int(x.get("번호", -1)) in range(len(photos))}
+        except (gemini.GeminiError, ValueError, KeyError, TypeError):
+            plan = None
+    if not plan:  # no answer: in order
+        plan = {j: (j, who) for j, (_, who) in enumerate(slots) if j < len(photos)}
+    used, result = set(), {"opening": None, "sections": [[] for _ in post.get("sections", [])]}
+    for j, (where, who) in enumerate(slots):
+        if j not in plan or plan[j][0] in used:
+            continue
+        idx, name = plan[j]
+        used.add(idx)
+        pick = (idx, name or who)
+        if where == "opening":
+            result["opening"] = pick
+        else:
+            result["sections"][where].append(pick)
+    return result
+
+
+def make_story(post, keyword, account, out_dir, sources, seed=""):
+    """8-10 photos for a story post from the researched articles (free photos fill gaps).
+    -> [{"path", "caption", "place"}]; place: "top", ("section", i), ("section_mid", i)."""
+    rnd = random.Random(f"{keyword}|{seed}")
+    base = slug(keyword)
+    print("🖼 기사 사진 모으는 중...")
+    photos = collect_story_photos(sources, out_dir, base)
+    plan = assign_story_photos(post, photos)
+    out = []
+
+    def caption(who, outlet):
+        return f"{who} / 출처: {outlet}" if who else f"출처: {outlet}"
+
+    def fill(where, want_who, query, place):
+        picked = plan["opening"] if where == "opening" else None
+        if picked:
+            idx, who = picked
+            out.append({"path": photos[idx]["path"], "caption": caption(who, photos[idx]["outlet"]), "place": place})
+            return
+        made = stock_photo(query or keyword, out_dir / f"{base}_{len(out) + 1}.jpg", rnd) if query else None
+        if made:
+            out.append({"path": made, "caption": caption(want_who, last_stock_source), "place": place})
+
+    fill("opening", post.get("opening_image", {}).get("who"), post.get("opening_image", {}).get("query"), "top")
+    for i, sec in enumerate(post.get("sections", [])):
+        picks = plan["sections"][i] if i < len(plan["sections"]) else []
+        for k, img in enumerate(sec.get("images", [])[:2]):
+            place = ("section", i) if k == 0 else ("section_mid", i)
+            if k < len(picks):
+                idx, who = picks[k]
+                out.append({"path": photos[idx]["path"], "caption": caption(who, photos[idx]["outlet"]),
+                            "place": place})
+            elif img.get("query"):
+                made = stock_photo(img["query"], out_dir / f"{base}_{len(out) + 1}.jpg", rnd)
+                if made:
+                    out.append({"path": made, "caption": caption(img.get("who"), last_stock_source),
+                                "place": place})
+            if len(out) >= STORY_MAX:
+                break
+    print(f"   사진 {len(out)}장 (기사 사진 {len(photos)}장 중)")
     return out
