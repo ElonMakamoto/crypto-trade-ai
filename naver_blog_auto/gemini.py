@@ -147,8 +147,13 @@ def _call(body, timeout=150):
     raise GeminiError(f"Gemini가 지금 답하지 않아요 ({last_error}). 잠시 뒤 다시 시도해 주세요.")
 
 
+last_response = {}
+
+
 def _parts(r):
+    global last_response
     data = r.json()
+    last_response = data
     try:
         return data["candidates"][0]["content"]["parts"]
     except (KeyError, IndexError):
@@ -196,6 +201,21 @@ def research(prompt):
         print(f"[AI] 구글 검색 조사를 못 했어요 ({e}) — 뉴스 제목으로 대신합니다")
         return ""
     return "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+
+
+def research_with_sources(prompt):
+    """Like research(), plus the web pages Google Search used: (notes, [{"title", "uri"}])."""
+    notes = research(prompt)
+    sources = []
+    try:
+        meta = last_response["candidates"][0].get("groundingMetadata") or {}
+        for chunk in meta.get("groundingChunks", []):
+            web = chunk.get("web") or {}
+            if web.get("uri"):
+                sources.append({"title": web.get("title", ""), "uri": web["uri"]})
+    except (KeyError, IndexError, TypeError):
+        pass
+    return notes, sources
 
 
 _image_model = None

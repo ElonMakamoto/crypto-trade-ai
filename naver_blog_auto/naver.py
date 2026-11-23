@@ -26,6 +26,8 @@ PUBLISH = "button[class*='publish_btn']"
 CONFIRM = "button[class*='confirm_btn'], button[data-testid='seOnePublishBtn']"
 TAG_INPUT = "#tag-input, input[class*='tag_input'], input[placeholder*='태그'], div[class*='tag_textarea']"
 SAVE = "button[class*='save_btn']"
+QUOTE_BUTTON = ("button.se-insert-quotation-default-toolbar-button, button[data-name='quotation'], "
+                "button[data-log='dot.quot'], button.se-quotation-toolbar-button")
 CATEGORY_BUTTON = ("[class*='option_category'] button, [class*='category'] button[class*='selectbox'], "
                    "button[class*='selectbox_button']")
 CATEGORY_OPTION = "[class*='option_list'] li, [class*='category'] [role='option'], [class*='category'] li"
@@ -355,6 +357,70 @@ class Editor:
         self.page.wait_for_timeout(1200)
         self.caret_below_image()
 
+    # ----- quotation subtitle and link card
+    CARET_AFTER = """(sel_) => {
+        const sel = window.getSelection(); if (!sel || !sel.anchorNode) return false;
+        const el = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement;
+        const comp = el && el.closest('.se-component');
+        if (!comp || !comp.classList.contains('se-text')) return false;
+        const all = document.querySelectorAll(sel_); if (!all.length) return true;
+        return !!(all[all.length - 1].compareDocumentPosition(comp) & Node.DOCUMENT_POSITION_FOLLOWING); }"""
+
+    def caret_after(self, selector):
+        """Cursor into a text line below the last `selector` component (adds one if needed)."""
+        for keys in ([], ["ArrowDown"], ["ArrowDown"], ["End", "Enter"]):
+            for key in keys:
+                self.page.keyboard.press(key)
+            if self.frame.evaluate(self.CARET_AFTER, selector):
+                return True
+        return False
+
+    def count(self, selector):
+        return self.frame.evaluate("(s) => document.querySelectorAll(s).length", selector)
+
+    def add_quote(self, text):
+        """A subtitle in Naver's quotation component (“ ”); falls back to a centered bold line."""
+        before = self.count(".se-component.se-quotation")
+        try:
+            button = self.frame.locator(QUOTE_BUTTON)
+            if button.count():
+                button.first.click(timeout=3000)
+            else:
+                self.page.keyboard.press("Control+Alt+Q")
+            end = time.time() + 5
+            while self.count(".se-component.se-quotation") <= before and time.time() < end:
+                self.page.wait_for_timeout(200)
+            if self.count(".se-component.se-quotation") > before:
+                self.page.wait_for_timeout(300)
+                self.page.keyboard.insert_text(text)
+                if not self.caret_after(".se-component.se-quotation"):
+                    print("   ⚠ 인용구 다음 줄로 커서를 옮기지 못했어요")
+                return "quote"
+        except Exception:
+            pass
+        html_ = f'<p style="text-align:center;"><span style="font-size:19px;"><b>“ {text} ”</b></span></p>'
+        self.add_text(html_, f"“ {text} ”")
+        return "quote-fallback"
+
+    def add_link(self, url):
+        """Paste a link alone on a line: SmartEditor turns it into a link card (falls back to the plain link)."""
+        before = self.count(".se-component.se-oglink")
+        try:
+            self.page.bring_to_front()
+            self.frame.evaluate("""async (u) => { await navigator.clipboard.write([new ClipboardItem({
+                'text/plain': new Blob([u], {type: 'text/plain'})})]); }""", url)
+            self.page.keyboard.press("Control+V")
+        except Exception:
+            self.page.keyboard.insert_text(url)
+        end = time.time() + 8
+        while self.count(".se-component.se-oglink") <= before and time.time() < end:
+            self.page.wait_for_timeout(300)
+        if self.count(".se-component.se-oglink") > before:
+            self.caret_after(".se-component.se-oglink")
+            return "card"
+        self.page.keyboard.press("Enter")
+        return "plain-link"
+
     def caret_below_image(self):
         """Put the cursor in a text line below the image just added, so the next text goes after it."""
         if self.frame.evaluate(self.CARET_AFTER_IMAGE):
@@ -458,6 +524,10 @@ def fill(editor, title, blocks):
                 print(f"   🖼 사진 {n_images}장 올림")
             except Exception as e:
                 print(f"   ⚠ 사진을 못 올렸어요: {str(e).splitlines()[0][:100]}")
+        elif block["type"] == "quote":
+            methods.add(editor.add_quote(block["text"]))
+        elif block["type"] == "link":
+            methods.add(editor.add_link(block["url"]))
         else:
             methods.add(editor.add_text(block["html"], block["text"]))
             if block.get("alone"):  # a heading: the following text starts on its own new line

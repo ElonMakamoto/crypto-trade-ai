@@ -106,6 +106,9 @@ img {{ max-width:100%; border-radius:8px; display:block; margin:16px auto; }}
 .meta {{ background:var(--card); border-radius:12px; padding:16px 20px; margin-bottom:28px; font-size:14px; }}
 .meta b {{ color:var(--ok); }} .tags span {{ display:inline-block; margin:2px 6px 2px 0; color:var(--sub); }}
 .ok {{ color:var(--ok); }} .warn {{ color:var(--warn); }}
+main p {{ margin:0; }}
+.quote {{ text-align:center; font-size:20px; margin:36px 0 20px; padding:8px 0; }}
+.card {{ display:block; border:1px solid #ddd; border-radius:8px; padding:12px 16px; margin:8px 0; color:inherit; text-decoration:none; }}
 </style></head><body><main>
 <div class="meta">
 <div>SEO 점수 <b>{score}/100</b> · 메인 키워드 <b>{keyword}</b> · {chars}</div>
@@ -118,12 +121,76 @@ img {{ max-width:100%; border-radius:8px; display:block; margin:16px auto; }}
 </main></body></html>"""
 
 
-def preview(post, images, result, keyword, related, dest):
+# ---------------------------------------------------------------- story mode (연애 categories)
+GRAY_SMALL = "color:#999999;font-size:13px;"
+FOOTER_STYLE = "color:#999999;font-size:11px;"
+
+
+def story_caption_html(text):
+    return f'<p style="text-align:center;"><span style="{GRAY_SMALL}">{html.escape(text)}</span></p>'
+
+
+def short_lines_html(chunk):
+    """One chunk = 1-2 short lines, each its own line, then an empty line."""
+    return "".join(para_html(line) for line in chunk.split("\n") if line.strip()) + GAP
+
+
+def story_blocks(post, images, related_post=None, outlets=()):
+    """The reference layout: photo + caption, quote/question/context opening, 4-5 sections with a quotation
+    subtitle and photos, a reader question, [함께보면 좋은 글] link card, and the image-source footer."""
+    by_place = {}
+    for item in images:
+        place = item["place"]
+        by_place[tuple(place) if isinstance(place, list) else place] = item
+    b = Builder()
+
+    def image(item):
+        b.blocks.append({"type": "image", "path": str(item["path"]), "caption": item.get("caption", "")})
+        if item.get("caption"):
+            b.text(story_caption_html(item["caption"]), item["caption"])
+        b.text(GAP, "")
+
+    def chunks(items):
+        for chunk in items:
+            b.text(short_lines_html(chunk), chunk + "\n")
+
+    if "top" in by_place:
+        image(by_place["top"])
+    chunks(post.get("intro", []))
+    for i, sec in enumerate(post.get("sections", [])):
+        b.blocks.append({"type": "quote", "text": sec["heading"]})
+        if ("section", i) in by_place:
+            image(by_place[("section", i)])
+        paras = sec.get("paragraphs", [])
+        half = (len(paras) + 1) // 2 if ("section_mid", i) in by_place else len(paras)
+        chunks(paras[:half])
+        if ("section_mid", i) in by_place:
+            image(by_place[("section_mid", i)])
+        chunks(paras[half:])
+    if post.get("question"):
+        chunks([post["question"]])
+    if related_post and related_post.get("url"):
+        b.text(para_html("**[함께보면 좋은 글]**"), "[함께보면 좋은 글]")
+        b.blocks.append({"type": "link", "url": related_post["url"], "title": related_post.get("title", "")})
+        b.text(GAP, "")
+    sources = ", ".join(outlets) or "각 방송사"
+    footer = [f"본문 글 이미지 출처 : {sources}", "모든 이미지 저작권은 방송사 각 SNS에 있습니다",
+              "무단 전재, 재배포 및 AI학습 이용 금지"]
+    b.text("".join(f'<p><span style="{FOOTER_STYLE}">{html.escape(x)}</span></p>' for x in footer), "\n".join(footer))
+    return b.blocks
+
+
+def preview(post, images, result, keyword, related, dest, page_blocks=None):
     """A preview page (open it in any browser) with the post as it will look and the SEO checklist."""
     body = []
-    for block in blocks(post, images):
+    for block in page_blocks or blocks(post, images):
         if block["type"] == "image":
             body.append(f'<img src="{html.escape(_name(block["path"]))}" alt="{html.escape(keyword)}">')
+        elif block["type"] == "quote":
+            body.append(f'<div class="quote">“ {html.escape(block["text"])} ”</div>')
+        elif block["type"] == "link":
+            body.append(f'<a class="card" href="{html.escape(block["url"])}"><b>{html.escape(block["title"] or block["url"])}'
+                        f'</b><br><small>{html.escape(block["url"])}</small></a>')
         else:
             body.append(block["html"])
     checks = "<br>".join(f'<span class="{"ok" if c["ok"] else "warn"}">{"✅" if c["ok"] else "⚠️"}</span> '

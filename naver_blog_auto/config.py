@@ -35,7 +35,11 @@ CHOICES = {
         "it": "IT·테크·앱", "life": "생활 정보·꿀팁", "money": "재테크·경제·절약", "policy": "정부 지원금·제도",
         "travel": "여행·나들이", "food": "맛집·요리·레시피", "health": "건강·운동 상식", "parenting": "육아·교육",
         "beauty": "뷰티·패션", "self": "자기계발·공부", "pet": "반려동물", "home": "살림·인테리어",
-        "car": "자동차", "realestate": "부동산", "culture": "영화·드라마·책", "custom": "직접 입력 (아래 세부 주제)",
+        "car": "자동차", "realestate": "부동산", "culture": "영화·드라마·책",
+        "love_show": "💕 연애예능 이슈 (연애전쟁·나는솔로·환승연애)", "love_star": "💕 스타 연애·결혼·결별 소식",
+        "love_psych": "💕 연애 고민·심리", "love_conflict": "💕 커플 갈등·이별", "love_some": "💕 썸·고백",
+        "love_marriage": "💕 결혼·돌싱 이야기",
+        "custom": "직접 입력 (아래 세부 주제)",
     },
     "STYLE": {
         "honest_review": "솔직 리뷰형 (기본)", AUTO: "🤖 자동 (검색 의도에 맞게)", "guide": "정보형 가이드", "howto": "방법·단계형 (How-to)",
@@ -68,6 +72,8 @@ COMMON_DEFAULTS = {
     "PEXELS_API_KEY": "",
     "BROWSER": "msedge",  # msedge (built into Windows) or chrome
     "SHOW_BROWSER": "1",  # show the browser window while posting (recommended)
+    # {app category: Naver blog category name} as JSON; empty entries fall back to LOVE[...]["naver"] / the AI
+    "CATEGORY_MAP": "",
 }
 SECRET_KEYS = {"GOOGLE_API_KEY", "PIXABAY_API_KEY", "PEXELS_API_KEY"}
 
@@ -92,6 +98,50 @@ ACCOUNT_DEFAULTS = {
     "AUTO_KEYWORDS": "1",
     "POST_TIMES": "",
 }
+# 연애 categories: written as news-story posts in the reference style (story mode). Each has its own news search
+# seeds, writing focus, default tags and default Naver blog category name.
+LOVE = {
+    "love_show": {"seeds": ["연애전쟁", "나는솔로", "환승연애", "솔로지옥", "돌싱글즈", "연애 예능"],
+                  "focus": "연애 리얼리티 예능의 최신 회차 이슈 (출연자 사연, MC 반응, 출연자의 선택과 결과)",
+                  "tags": ["연애예능", "연애리얼리티"], "naver": "연애예능 이슈"},
+    "love_star": {"seeds": ["열애 인정", "결혼 발표", "결별", "열애설", "스타 결혼"],
+                  "focus": "스타의 연애·결혼·결별 소식 (공식 입장, 소속사 발표, 지금까지의 경과)",
+                  "tags": ["스타열애", "연예계소식"], "naver": "스타 연애·결혼"},
+    "love_psych": {"seeds": ["연애 심리", "연애 고민", "연애 상담", "애착 유형"],
+                   "focus": "방송·기사로 화제가 된 연애 고민과 심리 (전문가 설명, 사례)",
+                   "tags": ["연애고민", "연애심리"], "naver": "연애 고민·심리"},
+    "love_conflict": {"seeds": ["커플 갈등", "이별 사연", "부부 갈등", "연애 갈등 방송"],
+                      "focus": "화제가 된 커플 갈등·이별 사연 (무슨 일이 있었고, 어떤 선택을 했는지)",
+                      "tags": ["커플갈등", "이별"], "naver": "커플 갈등·이별"},
+    "love_some": {"seeds": ["썸", "고백", "짝사랑", "썸 타는"],
+                  "focus": "화제가 된 썸·고백 이야기 (방송·스타·설문 결과)",
+                  "tags": ["썸", "고백"], "naver": "썸·고백"},
+    "love_marriage": {"seeds": ["결혼 발표", "돌싱", "재혼", "이혼 숙려", "돌싱글즈"],
+                      "focus": "결혼·돌싱·재혼 이야기 (방송·스타 소식, 공식 발표)",
+                      "tags": ["결혼", "돌싱"], "naver": "결혼·돌싱 이야기"},
+}
+
+
+def is_love(topic):
+    return topic in LOVE
+
+
+def category_map():
+    """{app category: Naver blog category name}, the saved names over the defaults."""
+    try:
+        saved = json.loads(load_common().get("CATEGORY_MAP") or "{}")
+    except ValueError:
+        saved = {}
+    out = {k: v["naver"] for k, v in LOVE.items()}
+    out.update({k: str(v).strip() for k, v in saved.items() if str(v).strip()})
+    return out
+
+
+def save_category_map(mapping):
+    save_common({"CATEGORY_MAP": json.dumps({k: v.strip() for k, v in mapping.items() if v.strip()},
+                                            ensure_ascii=False)})
+
+
 # the two accounts post at different times by default
 DEFAULT_TIMES = {"a": "09:30,19:30", "b": "11:00,21:00"}
 
