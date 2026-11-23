@@ -48,8 +48,11 @@ def publish_job(job):
     publish = account.get("PUBLISH", "publish") == "publish"
     from pathlib import Path
 
+    def pick(names):
+        return writer.pick_category(names, job["post"], job["keyword"], account.get("CATEGORY", ""))
+
     result = naver.post(aid, job["post"]["title"], job["blocks"], job["post"]["tags"], publish=publish,
-                        shot_dir=Path(job["dir"]))
+                        shot_dir=Path(job["dir"]), pick_category=pick)
     config.add_history(aid, {
         "keyword": job["keyword"], "title": job["post"]["title"], "url": result["url"], "log_no": result["log_no"],
         "draft": result["draft"], "blog_id": result["blog_id"], "score": job["seo"]["score"], "chars": job["seo"]["stats"]["chars"],

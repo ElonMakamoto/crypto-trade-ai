@@ -314,6 +314,10 @@ class AccountPanel:
         pair("사진 장수", choice_box(tab, "IMAGE_COUNT", self.vars["IMAGE_COUNT"]))
         pair("글쓴이 소개", ttk.Entry(tab, textvariable=self.vars["PERSONA"]), 2)
         r += 1
+        pair("카테고리", ttk.Entry(tab, textvariable=self.vars["CATEGORY"]))
+        ttk.Label(tab, text="비우면 AI가 글에 맞는 카테고리를 골라요", foreground="#666").grid(
+            row=r, column=2, columnspan=2, sticky="w", padx=10)
+        r += 1
         ttk.Label(tab, text="업로드 시간").grid(row=r, column=0, sticky="w", pady=3)
         times = ttk.Frame(tab)
         times.grid(row=r, column=1, columnspan=3, sticky="w", pady=3)
@@ -350,8 +354,10 @@ class AccountPanel:
         ttk.Button(tab, text="💾 저장", style="Accent.TButton", command=self.save).pack(anchor="w")
 
     def all_auto(self):
-        for kind in ("TOPIC", "STYLE", "TONE", "LENGTH", "IMAGE_STYLE", "IMAGE_SOURCE", "IMAGE_COUNT"):
+        for kind in ("TOPIC", "LENGTH", "IMAGE_STYLE", "IMAGE_SOURCE", "IMAGE_COUNT"):
             self.vars[kind].set(config.AUTO)
+        self.vars["STYLE"].set("honest_review")
+        self.vars["TONE"].set("mom40")
         self.auto_kw.set(True)
         self.save()
 

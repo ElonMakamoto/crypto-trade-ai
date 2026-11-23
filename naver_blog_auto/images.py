@@ -367,8 +367,30 @@ def pick_sections(n_sections, n_images):
     return sorted({min(n_sections - 1, int(i * step)) for i in range(k)})
 
 
+def middle_sections(n_sections, k):
+    """k section positions spread over the post, the first one in the middle."""
+    if k <= 0 or n_sections <= 0:
+        return []
+    picks = [min(n_sections - 1, int((j + 1) * n_sections / (k + 1))) for j in range(k)]
+    return sorted(set(picks))
+
+
+def photo(query, dest, source, style, heading, rnd):
+    """A real photo for the query (web), else an AI drawing; None if neither works."""
+    made = None
+    if query and source in (config.AUTO, "stock"):
+        made = stock_photo(query, dest.with_suffix(".jpg"), rnd)
+        if not made and len(query.split()) > 2:  # too specific: try the first words
+            made = stock_photo(" ".join(query.split()[:2]), dest.with_suffix(".jpg"), rnd)
+    if not made and source in (config.AUTO, "ai"):
+        made = ai_image(query, heading, style, dest.with_suffix(".jpg"))
+    return made
+
+
 def make(post, keyword, account, out_dir, seed=""):
-    """Create the images for a post -> [{"path", "caption", "place"}]; place is "top", ("section", i), "summary"."""
+    """Images for a post -> [{"path", "caption", "place"}]. A real photo about the post at the very top, photos in
+    the middle sections, the summary card, and a real photo at the very end. place: "top", ("section", i),
+    "summary", "end"."""
     rnd = random.Random(f"{keyword}|{seed}")
     style = account.get("IMAGE_STYLE", config.AUTO)
     if style not in STYLES:
@@ -376,29 +398,38 @@ def make(post, keyword, account, out_dir, seed=""):
     source = account.get("IMAGE_SOURCE", config.AUTO)
     count = account.get("IMAGE_COUNT", config.AUTO)
     sections = post.get("sections", [])
-    n_images = int(count) if count in ("4", "5", "6") else max(4, min(6, len(sections) + 2))
+    n_images = int(count) if count in ("4", "5", "6") else max(4, min(6, len(sections) + 1))
+    photos = post.get("photos") or {}
+    fallback_query = next((s.get("image", {}).get("query_en") for s in sections if s.get("image", {}).get("query_en")),
+                          "")
     base = slug(keyword)
-    brand = account.get("NICKNAME", "")
     out = []
     hue = rnd.random()
-    print(f"🖼 이미지 {n_images}장 만드는 중 (스타일: {style})")
-    path = title_card(post.get("thumbnail_title") or post["title"], keyword, style, rnd,
-                      out_dir / f"{base}_1.png", brand, hue)
-    out.append({"path": path, "caption": "", "place": "top"})
-    for number, i in enumerate(pick_sections(len(sections), n_images), 1):
+    print(f"🖼 이미지 {n_images}장 만드는 중 (맨 위·중간·맨 끝 관련 사진)")
+
+    def dest():
+        return out_dir / f"{base}_{len(out) + 1}"
+
+    top = photo(photos.get("top") or fallback_query, dest(), source, style, post["title"], rnd)
+    if not top:  # no photo found: the designed title card
+        top = title_card(post.get("thumbnail_title") or post["title"], keyword, style, rnd,
+                         dest().with_suffix(".png"), account.get("NICKNAME", ""), hue)
+    out.append({"path": top, "caption": "", "place": "top"})
+    for number, i in enumerate(middle_sections(len(sections), n_images - 3), 1):
         sec = sections[i]
         image = sec.get("image", {})
-        dest = out_dir / f"{base}_{len(out) + 1}"
-        made = None
-        if source in (config.AUTO, "stock") and image.get("query_en"):
-            made = stock_photo(image["query_en"], dest.with_suffix(".jpg"), rnd)
-        if not made and source in (config.AUTO, "ai"):
-            made = ai_image(image.get("query_en"), sec["heading"], style, dest.with_suffix(".jpg"))
+        query = (photos.get("middle") if number == 1 else "") or image.get("query_en")
+        made = photo(query, dest(), source, style, sec["heading"], rnd)
         if not made:
             points = image.get("points") or [re.sub(r"\*\*", "", p)[:60] for p in sec.get("paragraphs", [])[:2]]
-            made = section_card(number, sec["heading"], points, style, rnd, dest.with_suffix(".png"), hue)
+            made = section_card(number, sec["heading"], points, style, rnd, dest().with_suffix(".png"), hue)
         out.append({"path": made, "caption": image.get("caption", ""), "place": ("section", i)})
     summary = post.get("summary") or [s["heading"] for s in sections[:4]]
-    path = summary_card(summary, keyword, style, rnd, out_dir / f"{base}_{len(out) + 1}.png", hue)
-    out.append({"path": path, "caption": "", "place": "summary"})
+    out.append({"path": summary_card(summary, keyword, style, rnd, dest().with_suffix(".png"), hue), "caption": "",
+                "place": "summary"})
+    end = photo(photos.get("end") or photos.get("top") or fallback_query, dest(), source, style, post["title"], rnd)
+    if end:
+        out.append({"path": end, "caption": "", "place": "end"})
+    print(f"   사진 {sum(1 for o in out if str(o['path']).endswith('.jpg'))}장 + 카드 "
+          f"{sum(1 for o in out if str(o['path']).endswith('.png'))}장")
     return out
