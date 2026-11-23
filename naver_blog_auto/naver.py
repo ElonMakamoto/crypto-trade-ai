@@ -26,6 +26,9 @@ PUBLISH = "button[class*='publish_btn']"
 CONFIRM = "button[class*='confirm_btn'], button[data-testid='seOnePublishBtn']"
 TAG_INPUT = "#tag-input, input[class*='tag_input'], input[placeholder*='태그'], div[class*='tag_textarea']"
 SAVE = "button[class*='save_btn']"
+CATEGORY_BUTTON = ("[class*='option_category'] button, [class*='category'] button[class*='selectbox'], "
+                   "button[class*='selectbox_button']")
+CATEGORY_OPTION = "[class*='option_list'] li, [class*='category'] [role='option'], [class*='category'] li"
 RESERVED = {"myblog.naver", "postlist.naver", "postview.naver", "prologue", "postwrite",
             "goblogwrite.naver", "blogpost.naver"}
 
@@ -368,8 +371,33 @@ class Editor:
             print("   ⚠ 사진 다음 줄로 커서를 옮기지 못했어요 (글 순서를 확인해 주세요)")
 
     # ----- finishing
-    def publish(self, tags):
-        """Click 발행, add tags, confirm. Returns the new post's URL."""
+    def choose_category(self, pick):
+        """Open the category list in the publish panel and click the one `pick(names)` returns."""
+        try:
+            button = self.frame.locator(CATEGORY_BUTTON)
+            if not button.count():
+                print("   ⚠ 카테고리 선택칸을 찾지 못했어요 — 기본 카테고리로 올려요")
+                return None
+            button.first.click(timeout=3000)
+            self.page.wait_for_timeout(600)
+            options = self.frame.locator(CATEGORY_OPTION)
+            names = [re.sub(r"\s+", " ", t).strip() for t in options.all_inner_texts()]
+            choice = pick([n for n in names if n])
+            if not choice:
+                self.page.keyboard.press("Escape")
+                return None
+            for i, name in enumerate(names):
+                if name == choice:
+                    options.nth(i).click(timeout=3000)
+                    self.page.wait_for_timeout(400)
+                    print(f"   📁 카테고리: {choice}")
+                    return choice
+        except Exception as e:
+            print(f"   ⚠ 카테고리를 고르지 못했어요 ({str(e).splitlines()[0][:80]}) — 기본 카테고리로 올려요")
+        return None
+
+    def publish(self, tags, pick_category=None):
+        """Click 발행, choose the category, add tags, confirm. Returns the new post's URL."""
         self.dismiss_popups()
         button = self.frame.locator(PUBLISH)
         if not button.count():
@@ -381,6 +409,8 @@ class Editor:
         except Exception:
             confirm = self.frame.locator("[class*='layer_publish'] button, [class*='publish_layer'] button").filter(
                 has_text="발행")
+        if pick_category:
+            self.choose_category(pick_category)
         tag_box = self.frame.locator(TAG_INPUT)
         if tags and tag_box.count():
             try:
@@ -436,7 +466,7 @@ def fill(editor, title, blocks):
     return methods, n_images
 
 
-def post(aid, title, blocks, tags, publish=True, write_url=None, headless=None, shot_dir=None):
+def post(aid, title, blocks, tags, publish=True, write_url=None, headless=None, shot_dir=None, pick_category=None):
     """Write one post with the account's saved login. Returns {"url", "log_no", "draft", "blog_id"}."""
     with Session(aid, headless=headless) as s:
         try:
@@ -454,7 +484,7 @@ def post(aid, title, blocks, tags, publish=True, write_url=None, headless=None, 
             print(f"   본문 입력 방식: {', '.join(sorted(methods)) or '-'} · 사진 {n_images}장")
             if publish:
                 print("📤 발행 중...")
-                url = editor.publish(tags)
+                url = editor.publish(tags, pick_category)
                 return {"url": url, "log_no": log_no(url), "draft": False, "blog_id": blog, "images": n_images}
             editor.save_draft()
             print("💾 임시저장했어요. 네이버 블로그 글쓰기 → 임시저장 글에서 확인 후 발행하세요.")

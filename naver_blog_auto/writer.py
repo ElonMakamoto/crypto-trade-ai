@@ -171,17 +171,31 @@ FORMAT = """JSON으로만 답하세요. 형식:
  "intro": ["첫 문단 (메인 키워드 + 핵심 답)", "둘째 문단"],
  "sections": [
    {"heading": "소제목", "paragraphs": ["문단", "문단"], "bullets": ["목록 항목 (없으면 빈 배열)"],
-    "image": {"query_en": "photo search words in English", "points": ["카드 문구 1", "카드 문구 2"],
+    "image": {"query_en": "English words for a REAL photo of what this section is about (specific names)", "points": ["카드 문구 1", "카드 문구 2"],
               "caption": "사진 아래 설명 한 문장 (키워드 자연스럽게)"}}
  ],
  "summary": ["한눈에 정리 1", "2", "3"],
  "outro": ["마무리 문단"],
  "tags": ["태그 10개, 띄어쓰기·# 없이"],
  "related_used": ["본문에 실제로 넣은 연관검색어들"],
+ "photos": {"top": "English photo search words for the MAIN subject itself (e.g. the product, place, food, person or event by name)",
+            "middle": "English words for a related real photo for the middle", "end": "English words for a real photo to close the post"},
  "thumbnail_title": "대표 이미지에 크게 넣을 제목 (16자 이내, 줄바꿈할 곳에 /)",
  "image_style": "minimal|pastel|dark|memo|magazine 중 글에 어울리는 것"
 }
 문단 안에서 강조할 단어는 **굵게** 표시하세요 (문단당 1번 이하)."""
+
+
+VOICES = {
+    "mom40": "40대 여성 블로거가 이웃에게 수다 떨듯 쓰는 친근한 해요체. '~더라고요', '~거든요', '~했어요', '저도 ~', "
+             "'솔직히', '이건 좀 아쉽더라고요' 같은 말을 섞고, 공감하는 말과 가끔 감탄('와', '어머')을 과하지 않게. "
+             "딱딱한 설명문이나 기사체는 절대 쓰지 않음",
+}
+STYLES = {
+    "honest_review": "항상 리뷰하듯 쓰기: 첫인상(왜 관심이 갔는지) → 좋은 점 → 아쉬운 점 → 이런 분께 추천 → 총평 한 줄. "
+                     "솔직한 내 의견과 느낌을 많이 넣는다. 단, 직접 사거나 가 보거나 써 본 경험은 [내 메모]에 있을 때만 "
+                     "쓰고, 없으면 '찾아보고 비교해 보니', '후기들을 모아 보니' 시점으로 쓴다",
+}
 
 
 def _settings_text(account, n_images):
@@ -190,14 +204,14 @@ def _settings_text(account, n_images):
     pick = "자동 — 검색 의도에 맞게 직접 고르세요"
     return (
         f"[블로그 주제] {topic_text(account) or '자유'}\n"
-        f"[글 스타일] {pick if is_auto(account.get('STYLE')) else label('STYLE', account['STYLE'])}\n"
-        f"[말투] {pick if is_auto(account.get('TONE')) else label('TONE', account['TONE'])}\n"
+        f"[글 스타일] {pick if is_auto(account.get('STYLE')) else STYLES.get(account['STYLE'], label('STYLE', account['STYLE']))}\n"
+        f"[말투] {pick if is_auto(account.get('TONE')) else VOICES.get(account['TONE'], label('TONE', account['TONE']))}\n"
         f"[분량] 공백 제외 {min_chars:,}자 이상 (공백 포함 약 {int(min_chars * 1.25):,}자 이상)"
         f"{' — 키워드에 맞게 더 길게 써도 됨' if is_auto(length) else ''}\n"
-        f"[글쓴이] {account.get('PERSONA') or '정보를 꼼꼼히 정리해 주는 블로거 (경험담 없음)'}\n"
+        f"[글쓴이] {account.get('PERSONA') or ('40대 여성 블로거, 살림하고 이것저것 꼼꼼히 찾아보는 사람' if account.get('TONE') == 'mom40' else '정보를 꼼꼼히 정리해 주는 블로거')}\n"
         f"[내 메모 — 실제 경험·사실, 이것만 경험으로 쓸 수 있음]\n{account.get('MEMO') or '없음'}\n"
-        f"[이미지] 대표 이미지 + 소제목 이미지 {max(1, n_images - 2)}장 + 한눈에 정리 카드 → 소제목은 "
-        f"최소 {max(4, n_images - 2)}개\n"
+        f"[이미지] 글 맨 위·중간·맨 끝에 글 내용과 관련된 실제 사진이 들어감 (photos에 정확한 검색어) "
+        f"→ 소제목은 4~6개\n"
         f"[이미지 스타일] {'자동 — 글에 어울리게' if is_auto(account.get('IMAGE_STYLE')) else account['IMAGE_STYLE']}"
     )
 
@@ -230,6 +244,8 @@ def _normalize(post, keyword):
     out["tags"] = tags
     out["related_used"] = strings(post.get("related_used"))
     out["thumbnail_title"] = str(post.get("thumbnail_title") or out["title"]).strip()
+    photos = post.get("photos") if isinstance(post.get("photos"), dict) else {}
+    out["photos"] = {k: str(photos.get(k, "")).strip() for k in ("top", "middle", "end")}
     if out["image_style"] not in ("minimal", "pastel", "dark", "memo", "magazine"):
         out["image_style"] = None
     return out
@@ -318,3 +334,30 @@ def generate(aid, account, keyword=None):
             best = (result["score"], post, result)
     _, post, result = best
     return {"keyword": keyword, "related": rel, "must": must, "notes": notes, "post": post, "seo": result}
+
+
+def pick_category(names, post, keyword, preferred=""):
+    """The blog category to post in: the one the user set, else the AI's best fit among the blog's categories."""
+    names = [n for n in names if n]
+    if not names:
+        return None
+    if preferred:
+        exact = [n for n in names if keywords.squash(n) == keywords.squash(preferred)]
+        loose = [n for n in names if keywords.squash(preferred) in keywords.squash(n)]
+        if exact or loose:
+            return (exact or loose)[0]
+    if len(names) == 1:
+        return names[0]
+    try:
+        answer = gemini.generate_json(
+            f"네이버 블로그 글을 어느 카테고리에 올릴지 골라 주세요.\n글 제목: {post['title']}\n키워드: {keyword}\n"
+            f"카테고리 목록: {json.dumps(names, ensure_ascii=False)}\n"
+            '목록에 있는 이름 그대로 하나만. JSON으로만: {"category": "..."}', temperature=0.2)
+        choice = str(answer.get("category", "")).strip()
+        if choice in names:
+            return choice
+    except gemini.GeminiError:
+        pass
+    words = set(re.findall(r"[가-힣A-Za-z0-9]{2,}", post["title"] + " " + keyword))
+    scored = sorted(names, key=lambda n: -sum(1 for w in words if w in n or n in w))
+    return scored[0]

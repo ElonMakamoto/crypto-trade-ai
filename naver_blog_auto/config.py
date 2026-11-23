@@ -38,12 +38,12 @@ CHOICES = {
         "car": "자동차", "realestate": "부동산", "culture": "영화·드라마·책", "custom": "직접 입력 (아래 세부 주제)",
     },
     "STYLE": {
-        AUTO: "🤖 자동 (검색 의도에 맞게)", "guide": "정보형 가이드", "howto": "방법·단계형 (How-to)",
+        "honest_review": "솔직 리뷰형 (기본)", AUTO: "🤖 자동 (검색 의도에 맞게)", "guide": "정보형 가이드", "howto": "방법·단계형 (How-to)",
         "list": "리스트형 (TOP N·추천)", "compare": "비교·장단점형", "qa": "Q&A형", "news": "이슈·뉴스 해설형",
         "review": "리뷰형 (내 메모의 실제 경험만 사용)",
     },
     "TONE": {
-        AUTO: "🤖 자동", "friendly": "친근한 해요체", "expert": "전문가 느낌 합니다체", "plain": "담백한 설명체",
+        "mom40": "40대 여성 블로거, 친근한 수다체 (기본)", AUTO: "🤖 자동", "friendly": "친근한 해요체", "expert": "전문가 느낌 합니다체", "plain": "담백한 설명체",
         "fun": "유쾌한 구어체",
     },
     "LENGTH": {
@@ -79,8 +79,10 @@ ACCOUNT_DEFAULTS = {
     "TOPIC_DETAIL": "",  # e.g. "30대 직장인 재테크", or the topic the AI picked
     "PERSONA": "",  # who is writing: "10년차 직장인, 두 아이 아빠" (optional)
     "MEMO": "",  # real experiences / facts the writer may use (optional)
-    "STYLE": AUTO,
-    "TONE": AUTO,
+    "STYLE": "honest_review",
+    "TONE": "mom40",
+    "CATEGORY": "",  # blog category to post in; empty = the AI picks the best fitting one
+    "V2": "",  # set once the account moved to the review style defaults
     "LENGTH": AUTO,
     "IMAGE_STYLE": AUTO,
     "IMAGE_SOURCE": AUTO,
@@ -143,6 +145,14 @@ def load_account(aid):
         saved = _read().get("accounts", {}).get(aid, {})
     values = dict(ACCOUNT_DEFAULTS, POST_TIMES=DEFAULT_TIMES.get(aid, "10:00"))
     values.update({k: str(v) for k, v in saved.items() if k in ACCOUNT_DEFAULTS})
+    if saved and not values["V2"]:
+        # once: friendly 40s-woman review voice for accounts that were on "auto"
+        if values["TONE"] == AUTO:
+            values["TONE"] = "mom40"
+        if values["STYLE"] == AUTO:
+            values["STYLE"] = "honest_review"
+        values["V2"] = "1"
+        save_account(aid, {"TONE": values["TONE"], "STYLE": values["STYLE"], "V2": "1"})
     return values
 
 

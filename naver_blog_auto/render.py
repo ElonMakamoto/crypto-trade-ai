@@ -88,6 +88,8 @@ def blocks(post, images):
             b.image(by_place["summary"])
         b.bullets(post.get("summary", []))
     b.paragraphs(post.get("outro", []))
+    if "end" in by_place:
+        b.image(by_place["end"])
     return b.blocks
 
 

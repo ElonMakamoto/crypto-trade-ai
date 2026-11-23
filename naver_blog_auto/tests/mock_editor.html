@@ -25,6 +25,8 @@ body { font-family: sans-serif; margin: 0; }
   <div class="se-component se-text"><p class="se-text-paragraph"><br></p></div>
 </div>
 <div class="layer">
+  <div class="option_category"><button class="selectbox_button__mock" type="button">게시판</button>
+    <ul class="option_list__mock" style="display:none"><li>게시판</li><li>재테크 정보</li><li>일상</li></ul></div>
   <input id="tag-input" placeholder="#태그 입력">
   <div class="tags"></div>
   <button class="confirm_btn__mock" type="button">발행</button>
@@ -79,6 +81,13 @@ document.getElementById('tag-input').addEventListener('keydown', e => {
     const t = document.createElement('span'); t.className = 'tag'; t.textContent = e.target.value.trim();
     document.querySelector('.tags').appendChild(t); e.target.value = '';
   }
+});
+document.querySelector('.selectbox_button__mock').onclick = () => {
+  const list = document.querySelector('.option_list__mock'); list.style.display = list.style.display === 'none' ? 'block' : 'none';
+};
+document.querySelectorAll('.option_list__mock li').forEach(li => li.onclick = () => {
+  document.querySelector('.selectbox_button__mock').textContent = li.textContent;
+  document.querySelector('.option_list__mock').style.display = 'none';
 });
 document.querySelector('.confirm_btn__mock').onclick = () => { location.hash = 'logNo=223456789012'; };
 </script>

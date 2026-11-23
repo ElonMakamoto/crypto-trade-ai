@@ -51,7 +51,8 @@ def browser_test(blocks, tmp):
             .map(c => c.classList.contains('se-image') ? 'IMG' : c.innerText.trim().replace(/\\s+/g, ' '))
             .filter(Boolean)""")
         title = s.page.inner_text(".se-documentTitle")
-        url = editor.publish(SAMPLE["tags"])
+        url = editor.publish(SAMPLE["tags"], lambda names: "재테크 정보" if "재테크 정보" in names else None)
+        category = s.page.inner_text(".selectbox_button__mock")
         tags = s.page.evaluate("() => [...document.querySelectorAll('.tag')].map(t => t.textContent)")
     assert SAMPLE["title"][:10] in title, f"title missing: {title!r}"
     expected_images = sum(1 for b in blocks if b["type"] == "image")
@@ -62,6 +63,7 @@ def browser_test(blocks, tmp):
         assert sec["heading"][:8] in body, f"heading missing: {sec['heading']}"
     assert naver.log_no(url) == "223456789012", url
     assert len(tags) == 10, tags
+    assert category == "재테크 정보", category
     return f"browser ok ({', '.join(sorted(methods))}; {n_images} images in order)"
 
 
@@ -87,13 +89,14 @@ def run(report=None, browser=True):
 
         account = dict(config.ACCOUNT_DEFAULTS, IMAGE_SOURCE="card", IMAGE_COUNT="6", IMAGE_STYLE="auto")
         pics = images.make(SAMPLE, "청년도약계좌 조건", account, tmp, seed="selftest")
-        assert len(pics) == 6, len(pics)
+        assert len(pics) == 5 and pics[0]["place"] == "top" and pics[-1]["place"] == "summary", pics  # cards only: no end photo
         result = seo.analyze(SAMPLE, "청년도약계좌 조건", ["청년도약계좌 신청", "청년도약계좌 금리"], "short", len(pics))
         assert 0 <= result["score"] <= 100 and result["checks"], result
         lines.append(f"seo ok (score {result['score']})")
         blocks = render.blocks(SAMPLE, pics)
         render.preview(SAMPLE, pics, result, "청년도약계좌 조건", ["청년도약계좌 신청"], tmp / "preview.html")
-        assert sum(1 for b in blocks if b["type"] == "image") == 6
+        assert sum(1 for b in blocks if b["type"] == "image") == 5
+        assert images.middle_sections(5, 1) == [2] and images.middle_sections(4, 3) == [1, 2, 3]
         assert seo.similarity("가나다라마바사아자차", "가나다라마바사아자차") == 1.0
 
         ac = keywords.parse_naver_autocomplete({"items": [[["청년도약계좌 조건"], ["청년도약계좌 금리"]]]})
