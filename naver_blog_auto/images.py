@@ -279,8 +279,22 @@ def _remember(url):
     _used_file().write_text(json.dumps(sorted(used)[-3000:]), encoding="utf-8")
 
 
+def openverse(query):
+    """Photos from the web that anyone may reuse without credit (public domain / CC0), via Openverse — no key."""
+    try:
+        r = requests.get("https://api.openverse.org/v1/images/", timeout=20, params={
+            "q": query[:100], "license": "cc0,pdm", "page_size": 20, "size": "large", "mature": "false"},
+            headers={"User-Agent": "NaverBlogAuto/1.0"})
+        if not r.ok:
+            return []
+        return [x["url"] for x in r.json().get("results", []) if x.get("url") and (x.get("width") or 1000) >= 700]
+    except (requests.RequestException, ValueError, KeyError):
+        return []
+
+
 def stock_photo(query, dest, rnd):
-    """A free photo (Pixabay or Pexels, if a key is set) not used in an earlier post."""
+    """A photo from the web for this topic, not used in an earlier post: Pixabay/Pexels when a key is set,
+    otherwise free-to-reuse photos found on the web (no credit needed)."""
     common = config.load_common()
     urls = []
     try:
@@ -298,15 +312,19 @@ def stock_photo(query, dest, rnd):
                 urls += [p["src"].get("large2x") or p["src"].get("large") for p in r.json().get("photos", [])]
     except (requests.RequestException, ValueError, KeyError):
         return None
+    if len(urls) < 3:
+        urls += openverse(query)
     used = _used()
     fresh = [u for u in urls if u and u not in used]
     if not fresh:
         return None
     url = rnd.choice(fresh[:8])
     try:
-        r = requests.get(url, timeout=30)
+        r = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 NaverBlogAuto/1.0"})
         r.raise_for_status()
         img = Image.open(BytesIO(r.content)).convert("RGB")
+        if img.width < 500:
+            return None
     except (requests.RequestException, OSError):
         return None
     _remember(url)
@@ -372,10 +390,10 @@ def make(post, keyword, account, out_dir, seed=""):
         image = sec.get("image", {})
         dest = out_dir / f"{base}_{len(out) + 1}"
         made = None
-        if source in (config.AUTO, "ai"):
-            made = ai_image(image.get("query_en"), sec["heading"], style, dest.with_suffix(".jpg"))
-        if not made and source in (config.AUTO, "stock") and image.get("query_en"):
+        if source in (config.AUTO, "stock") and image.get("query_en"):
             made = stock_photo(image["query_en"], dest.with_suffix(".jpg"), rnd)
+        if not made and source in (config.AUTO, "ai"):
+            made = ai_image(image.get("query_en"), sec["heading"], style, dest.with_suffix(".jpg"))
         if not made:
             points = image.get("points") or [re.sub(r"\*\*", "", p)[:60] for p in sec.get("paragraphs", [])[:2]]
             made = section_card(number, sec["heading"], points, style, rnd, dest.with_suffix(".png"), hue)

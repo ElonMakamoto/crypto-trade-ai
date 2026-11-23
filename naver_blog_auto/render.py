@@ -10,12 +10,21 @@ def inline(text):
     return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html.escape(str(text)))
 
 
+HEADING_STYLE = "font-size:24px;font-weight:bold;"
+
+
 def heading_html(text):
-    return f'<p><span style="font-size:24px;"><b>{inline(text)}</b></span></p>'
+    """Every heading the same: big and bold (pasted on its own so it never picks up the text around it)."""
+    plain = re.sub(r"\*\*(.+?)\*\*", r"\1", str(text))
+    return f'<p><span style="{HEADING_STYLE}"><b>{html.escape(plain)}</b></span></p>'
+
+
+BODY_STYLE = "font-size:16px;font-weight:normal;"
 
 
 def para_html(text):
-    return f"<p>{inline(text)}</p>"
+    # an explicit normal style, so body text never takes on the big bold of the heading above it
+    return f'<p><span style="{BODY_STYLE}">{inline(text)}</span></p>'
 
 
 GAP = "<p><br></p>"
@@ -31,12 +40,15 @@ class Builder:
     def __init__(self):
         self.blocks = []
 
-    def text(self, html_part, plain):
-        if self.blocks and self.blocks[-1]["type"] == "text":
+    def text(self, html_part, plain, alone=False):
+        if self.blocks and self.blocks[-1]["type"] == "text" and not alone and not self.blocks[-1].get("alone"):
             self.blocks[-1]["html"] += html_part
             self.blocks[-1]["text"] += "\n" + plain
         else:
-            self.blocks.append({"type": "text", "html": html_part, "text": plain})
+            self.blocks.append({"type": "text", "html": html_part, "text": plain, "alone": alone})
+
+    def heading(self, text):
+        self.text(heading_html(text), seo.clean(text), alone=True)
 
     def image(self, item):
         self.blocks.append({"type": "image", "path": str(item["path"]), "caption": item.get("caption", "")})
@@ -65,21 +77,16 @@ def blocks(post, images):
         b.image(by_place["top"])
     b.paragraphs(post.get("intro", []))
     for i, sec in enumerate(post.get("sections", [])):
-        b.text(heading_html(sec["heading"]), seo.clean(sec["heading"]))
+        b.heading(sec["heading"])
         if ("section", i) in by_place:
             b.image(by_place[("section", i)])
         b.paragraphs(sec.get("paragraphs", []))
         b.bullets(sec.get("bullets", []), "•")
     if post.get("summary") or "summary" in by_place:
-        b.text(heading_html("한눈에 정리"), "한눈에 정리")
+        b.heading("한눈에 정리")
         if "summary" in by_place:
             b.image(by_place["summary"])
         b.bullets(post.get("summary", []))
-    if post.get("faq"):
-        b.text(heading_html("자주 묻는 질문"), "자주 묻는 질문")
-        for qa in post["faq"]:
-            b.text(f"<p><b>Q. {inline(qa['q'])}</b></p>{para_html('A. ' + qa['a'])}{GAP}",
-                   f"Q. {seo.clean(qa['q'])}\nA. {seo.clean(qa['a'])}\n")
     b.paragraphs(post.get("outro", []))
     return b.blocks
 

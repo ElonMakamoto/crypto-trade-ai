@@ -31,7 +31,7 @@ ACCOUNTS = {"a": "계정 1", "b": "계정 2"}
 # ---------------------------------------------------------------- choices (value -> label shown in the app)
 CHOICES = {
     "TOPIC": {
-        AUTO: "🤖 자동 (AI가 잘 될 주제를 골라 고정)",
+        AUTO: "🤖 자동 (AI가 잘 될 주제를 골라 고정)", "hot": "🔥 실시간 인기 이슈 (분야 상관없이 지금 뜨는 것)",
         "it": "IT·테크·앱", "life": "생활 정보·꿀팁", "money": "재테크·경제·절약", "policy": "정부 지원금·제도",
         "travel": "여행·나들이", "food": "맛집·요리·레시피", "health": "건강·운동 상식", "parenting": "육아·교육",
         "beauty": "뷰티·패션", "self": "자기계발·공부", "pet": "반려동물", "home": "살림·인테리어",
@@ -54,7 +54,7 @@ CHOICES = {
         "memo": "메모지·노트", "magazine": "매거진",
     },
     "IMAGE_SOURCE": {
-        AUTO: "🤖 자동 (AI 그림 → 무료 사진 → 카드)", "ai": "AI 그림 (Gemini)", "stock": "무료 사진 (Pixabay/Pexels 키 필요)",
+        AUTO: "🤖 자동 (인터넷 사진 → AI 그림 → 카드)", "stock": "인터넷 사진 (알아서 찾아옴)", "ai": "AI 그림 (Gemini)",
         "card": "디자인 카드만",
     },
     "IMAGE_COUNT": {AUTO: "🤖 자동 (4~6장)", "4": "4장", "5": "5장", "6": "6장"},

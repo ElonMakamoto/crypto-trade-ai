@@ -90,38 +90,44 @@ def queued_keyword(aid, account):
 
 
 def auto_keyword(aid, account):
-    """The AI picks the next keyword: real searches (Naver/Google autocomplete) around the blog's topic, long-tail,
+    """The AI picks the next keyword, hot and recent first: today's rising searches and news (Google Trends,
+    Google News) connected to the blog's topic, checked against real searches (Naver/Google autocomplete),
     not posted before, leaning toward what already ranked well for this blog."""
-    topic = ensure_topic(aid, account)
+    hot_only = account.get("TOPIC") == "hot"
+    topic = "분야 상관없이 지금 한국에서 가장 화제인 것" if hot_only else ensure_topic(aid, account)
     history = config.load_history(aid)
     used = used_keywords(aid)
     good = [h["keyword"] for h in history if h.get("blog_rank") and 0 < h["blog_rank"] <= 10][-10:]
     weak = [h["keyword"] for h in history if h.get("blog_rank") == 0][-10:]
-    trend = keywords.trending()[:20]
+    trend = keywords.trending()[:25]
+    headlines = keywords.top_news(20) if hot_only else [h["title"] for h in keywords.news(topic, 15, days=3)]
+    print(f"🔥 지금 뜨는 것: 인기 검색어 {len(trend)}개, 최근 뉴스 {len(headlines)}개")
     seeds = gemini.generate_json(
         f"네이버 블로그 주제: {topic}\n"
+        f"오늘 한국 인기 급상승 검색어: {', '.join(trend) or '알 수 없음'}\n"
+        f"최근 3일 뉴스 제목:\n" + "\n".join(f"- {h}" for h in headlines[:20]) + "\n"
         f"이미 쓴 키워드(다시 쓰지 않음): {', '.join(h['keyword'] for h in history[-40:]) or '없음'}\n"
         f"검색 상위에 오른 키워드(이런 방향을 더): {', '.join(good) or '아직 없음'}\n"
-        f"노출이 안 된 키워드(경쟁이 센 방향은 피함): {', '.join(weak) or '아직 없음'}\n"
-        f"요즘 한국 인기 검색어(주제와 맞을 때만 참고): {', '.join(trend) or '알 수 없음'}\n"
-        "이 블로그가 다음에 쓸 글의 '검색 씨앗어' 8개를 만들어 주세요. 사람들이 네이버에 실제로 치는 짧은 검색어 "
-        "(2~3단어). 꾸준히 검색되는 것 6개 + 요즘 뜨는 것 2개.\n"
+        "지금 사람들이 네이버에 막 검색하기 시작한 '핫한' 검색어 8개를 만들어 주세요. 위 인기 검색어·뉴스 중 이 "
+        "블로그 주제와 연결되는 것 위주 (최신 화제 6개 + 꾸준히 검색되는 것 2개). 사람들이 실제로 치는 짧은 "
+        "검색어(2~3단어).\n"
         'JSON으로만: {"seeds": ["...", "..."]}', temperature=0.9).get("seeds", [])
     candidates = []
     for seed in [s for s in seeds if isinstance(s, str)][:8]:
-        for phrase in keywords.naver_autocomplete(seed)[:8] + keywords.google_suggest(seed)[:5]:
-            if keywords.squash(phrase) not in used and 4 <= len(phrase) <= 25:
+        for phrase in [seed] + keywords.naver_autocomplete(seed)[:8] + keywords.google_suggest(seed)[:5]:
+            if keywords.squash(phrase) not in used and 2 <= len(phrase) <= 25:
                 candidates.append(phrase)
-    candidates = list(dict.fromkeys(candidates))[:60]
+    candidates = list(dict.fromkeys(candidates))[:70]
     print(f"🔎 실제 검색어 후보 {len(candidates)}개 (네이버·구글 자동완성)")
     answer = gemini.generate_json(
         f"네이버 블로그 주제: {topic}\n"
-        f"실제 검색어 후보 (네이버·구글 자동완성에서 모음):\n{json.dumps(candidates, ensure_ascii=False)}\n"
+        f"실제 검색어 후보:\n{json.dumps(candidates, ensure_ascii=False)}\n"
+        f"오늘 인기 검색어: {', '.join(trend[:15]) or '알 수 없음'}\n"
         f"이미 쓴 키워드: {', '.join(h['keyword'] for h in history[-40:]) or '없음'}\n"
         f"상위 노출된 키워드: {', '.join(good) or '없음'} / 노출 안 된 키워드: {', '.join(weak) or '없음'}\n"
-        "다음 글의 메인 키워드 하나를 고르세요. 기준: 주제에 맞음, 검색 의도가 분명함, 2~4단어 롱테일(새 블로그도 "
-        "상위 노출 가능), 정보성 글로 확실한 답을 줄 수 있음, 이미 쓴 것과 겹치지 않음. 후보가 비어 있으면 같은 기준으로 "
-        "직접 만드세요.\n"
+        "다음 글의 메인 키워드 하나를 고르세요. 1순위: 지금 막 화제라 검색이 몰리고 있는 것 (최신성). "
+        "그 다음: 검색 의도가 분명함, 2~4단어(너무 넓은 한 단어는 피함), 조사한 사실로 쓸모 있는 글을 쓸 수 있음, "
+        "이미 쓴 것과 겹치지 않음. 후보가 비어 있으면 같은 기준으로 직접 만드세요.\n"
         'JSON으로만: {"keyword": "...", "reason": "한 줄"}', temperature=0.7)
     keyword = str(answer.get("keyword", "")).strip()
     if not keyword:
@@ -147,7 +153,7 @@ def research(keyword, related):
         f"네이버 블로그에 '{keyword}' 글을 쓰려고 합니다. 구글 검색으로 최신 정보를 조사해서 한국어 메모로 정리해 주세요.\n"
         f"함께 다룰 연관검색어: {', '.join(related[:10]) or '없음'}\n"
         "- 검색한 사람이 가장 알고 싶은 답\n- 핵심 사실, 숫자, 금액, 날짜, 조건, 절차 (출처 기관·매체 이름과 함께)\n"
-        "- 자주 묻는 질문과 답\n- 헷갈리기 쉬운 점, 주의할 점\n"
+        "- 최근 1~2주 사이의 새 소식이 있으면 맨 먼저, 날짜와 함께\n- 헷갈리기 쉬운 점, 주의할 점\n"
         "확인되지 않은 내용은 쓰지 말고, 날짜가 중요한 정보는 기준 날짜를 적어 주세요. 1,500자 안팎.")
     headlines = keywords.news(keyword, 8)
     if headlines:
@@ -169,7 +175,6 @@ FORMAT = """JSON으로만 답하세요. 형식:
               "caption": "사진 아래 설명 한 문장 (키워드 자연스럽게)"}}
  ],
  "summary": ["한눈에 정리 1", "2", "3"],
- "faq": [{"q": "질문", "a": "답"}],
  "outro": ["마무리 문단"],
  "tags": ["태그 10개, 띄어쓰기·# 없이"],
  "related_used": ["본문에 실제로 넣은 연관검색어들"],
@@ -217,8 +222,7 @@ def _normalize(post, keyword):
             "image": {"query_en": str(image.get("query_en", "")).strip(), "points": strings(image.get("points"))[:3],
                       "caption": str(image.get("caption", "")).strip()}})
     out["summary"] = strings(post.get("summary"))[:5]
-    out["faq"] = [{"q": str(f.get("q", "")).strip(), "a": str(f.get("a", "")).strip()}
-                  for f in post.get("faq") or [] if isinstance(f, dict) and f.get("q") and f.get("a")][:5]
+    out["faq"] = []  # no Q&A section
     out["outro"] = strings(post.get("outro"))
     tags = [re.sub(r"[\s#]", "", t) for t in strings(post.get("tags"))]
     main = keywords.squash(keyword)
@@ -236,10 +240,13 @@ def write(keyword, must, extra, notes, account, n_images):
         f"[메인 키워드] {keyword}\n"
         f"[반드시 넣을 연관검색어 — 네이버·구글에서 실제로 검색되는 말, 원래 형태 그대로 모두 넣기]\n"
         f"{', '.join(must) if must else '(수집 실패 — 사람들이 실제로 검색할 연관검색어 6개를 직접 정해서 넣고 related_used에 적기)'}\n"
-        f"[추가 연관검색어 — FAQ와 본문에 자연스럽게]\n{', '.join(extra) or '없음'}\n"
+        f"[추가 연관검색어 — 본문 곳곳에 자연스럽게]\n{', '.join(extra) or '없음'}\n"
         f"{_settings_text(account, n_images)}\n\n"
         f"[조사 메모 — 사실은 여기서만]\n{notes or '조사 메모 없음: 확실히 아는 일반 상식만 쓰고, 날짜·금액처럼 바뀌는 정보는 확인 방법을 안내'}\n\n"
-        f"스킬의 작성 순서와 품질 검사를 지켜 네이버 블로그 글을 쓰세요.\n{FORMAT}")
+        "스킬의 작성 순서와 품질 검사를 지켜 네이버 블로그 글을 쓰세요. 무엇보다 사람이 쓴 것처럼 자연스럽게: "
+        "실제 블로거가 친구에게 설명하듯 흐름이 이어지게, 문장 길이를 섞고, 같은 어미를 반복하지 말고, 키워드는 "
+        "티 나지 않게 넣으세요. Q&A(자주 묻는 질문) 부분은 쓰지 않습니다. 최근 소식이 있으면 도입부에서 먼저 "
+        f"짚어 주세요.\n{FORMAT}")
     return _normalize(gemini.generate_json(prompt, system=system_prompt(), temperature=0.8), keyword)
 
 
