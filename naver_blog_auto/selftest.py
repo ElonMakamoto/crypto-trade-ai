@@ -102,11 +102,15 @@ def story_browser_test(tmp):
             quotes: [...document.querySelectorAll('.se-quotation')].map(q => q.innerText.trim()),
             cards: document.querySelectorAll('.se-oglink').length,
             text: document.querySelector('.se-content').innerText})""")
+        found_center = s.page.evaluate("""() => [...document.querySelectorAll('.se-content .se-text .se-text-paragraph')]
+            .filter(p => p.innerText.trim()).every(p => getComputedStyle(p).textAlign === 'center')""")
     assert len(found["quotes"]) == 4 and "소제목 1" in found["quotes"][0], found["quotes"]
     assert found["cards"] == 1, methods
     for must in ("이효리 / 출처: 톱스타뉴스", "[함께보면 좋은 글]", "무단 전재, 재배포 및 AI학습 이용 금지"):
         assert must in found["text"], must
     assert n_images == 5
+    centered = found_center
+    assert centered, "body text should be centered"
     result = story.check(post, "연애전쟁")
     assert result["checks"], result
     return f"story ok ({', '.join(sorted(methods))}; 4 quote subtitles, link card, {n_images} images)"
@@ -153,6 +157,14 @@ def run(report=None, browser=True):
         assert ranks == [("abc", "223000000001"), ("me", "223000000002")], ranks
         merged = keywords.merge("청년도약계좌", ["청년도약계좌 조건"], ["청년적금"], ["청년도약계좌 조건", "청년도약계좌 해지"])
         assert merged["ranked"][0] == "청년도약계좌 조건", merged
+        links = keywords.NAVER_ARTICLE.findall('<a href="https://n.news.naver.com/mnews/article/123/0000001">'
+                                               '<a href="https://m.entertain.naver.com/article/111/0000002">')
+        assert links == ["https://n.news.naver.com/mnews/article/123/0000001",
+                         "https://m.entertain.naver.com/article/111/0000002"], links
+        page = ('<meta content="https://img/a.jpg" property="og:image"><meta property="og:article:author" '
+                'content="톱스타뉴스">')
+        assert images._meta(page, "og:image") == "https://img/a.jpg"
+        assert images._meta(page, "og:article:author") == "톱스타뉴스"
         assert secure_store.decrypt(secure_store.encrypt("secret")) == "secret"
         assert timeslots.next_slot(timeslots.parse("09:30,19:30"), seed="a") is not None
         assert "Asia/Seoul" in str(timeslots.KST) or str(timeslots.KST) == "KST"

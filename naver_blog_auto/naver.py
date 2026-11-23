@@ -398,7 +398,7 @@ class Editor:
                 return "quote"
         except Exception:
             pass
-        html_ = f'<p style="text-align:center;"><span style="font-size:19px;"><b>“ {text} ”</b></span></p>'
+        html_ = f'<p style="text-align:center;"><span style="font-size:24px;"><b>“ {text} ”</b></span></p>'
         self.add_text(html_, f"“ {text} ”")
         return "quote-fallback"
 
@@ -420,6 +420,33 @@ class Editor:
             return "card"
         self.page.keyboard.press("Enter")
         return "plain-link"
+
+    def center_all(self):
+        """Make sure the body is centered: if the pasted alignment didn't stick, select everything and use the
+        editor's own center-align button."""
+        js = """() => { const ps = [...document.querySelectorAll('.se-component.se-text .se-text-paragraph')]
+            .filter(p => p.innerText.trim());
+            const c = ps.filter(p => p.className.includes('align-center') || getComputedStyle(p).textAlign === 'center');
+            return [c.length, ps.length]; }"""
+        centered, total = self.frame.evaluate(js)
+        if not total or centered >= total * 0.8:
+            return True
+        try:
+            self.frame.locator(BODY_PARAGRAPH).last.click()
+            self.page.keyboard.press("Control+A")
+            opener = self.frame.locator("button.se-align-left-toolbar-button, button[data-name*='align'], "
+                                        "button[class*='se-align'][class*='toolbar-button']")
+            if opener.count():
+                opener.first.click(timeout=3000)
+            option = self.frame.locator("button.se-toolbar-option-align-center-button, "
+                                        "button[data-value='center'], button[class*='align-center']")
+            option.first.click(timeout=3000)
+            self.page.keyboard.press("End")
+        except Exception as e:
+            print(f"   ⚠ 가운데 정렬 버튼을 찾지 못했어요 ({str(e).splitlines()[0][:60]})")
+        centered, total = self.frame.evaluate(js)
+        print(f"   가운데 정렬: {centered}/{total}줄")
+        return centered >= total * 0.8
 
     def caret_below_image(self):
         """Put the cursor in a text line below the image just added, so the next text goes after it."""
@@ -533,6 +560,10 @@ def fill(editor, title, blocks):
             if block.get("alone"):  # a heading: the following text starts on its own new line
                 editor.page.keyboard.press("End")
                 editor.page.keyboard.press("Enter")
+    try:
+        editor.center_all()
+    except Exception:
+        pass
     return methods, n_images
 
 
