@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>mock SmartEditor</title>
+<style>
+body { font-family: sans-serif; margin: 0; }
+.toolbar { padding: 8px; border-bottom: 1px solid #ddd; display: flex; gap: 8px; }
+.se-documentTitle { font-size: 28px; padding: 16px; border-bottom: 1px solid #eee; }
+.se-content { padding: 16px; min-height: 400px; outline: none; }
+.se-component { margin: 4px 0; }
+.se-image img { width: 160px; height: 160px; object-fit: cover; }
+.se-popup { position: fixed; top: 40%; left: 30%; background: #fff; border: 1px solid #333; padding: 20px; }
+.layer { display: none; position: fixed; top: 60px; right: 20px; background: #fff; border: 1px solid #333; padding: 16px; }
+</style></head>
+<body>
+<!-- A stand-in for Naver's SmartEditor ONE with the same class names, used by the self-test only. -->
+<div class="toolbar">
+  <button class="se-image-toolbar-button" type="button">사진</button>
+  <button class="save_btn__mock" type="button">저장</button>
+  <button class="publish_btn__mock" type="button">발행</button>
+  <input type="file" id="file" accept="image/*" style="display:none">
+</div>
+<div class="se-popup"><p>작성 중인 글이 있습니다.</p><button class="se-popup-button-cancel">취소</button>
+  <button class="se-popup-button-confirm">확인</button></div>
+<div class="se-component se-documentTitle"><p class="se-text-paragraph" contenteditable="true"></p></div>
+<div class="se-content" contenteditable="true">
+  <div class="se-component se-text"><p class="se-text-paragraph"><br></p></div>
+</div>
+<div class="layer">
+  <input id="tag-input" placeholder="#태그 입력">
+  <div class="tags"></div>
+  <button class="confirm_btn__mock" type="button">발행</button>
+</div>
+<script>
+const content = document.querySelector('.se-content');
+document.querySelector('.se-popup-button-cancel').onclick = () => document.querySelector('.se-popup').remove();
+
+function currentComponent() {
+  const sel = getSelection();
+  if (!sel.anchorNode) return content.lastElementChild;
+  const el = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement;
+  return (el && el.closest('.se-content .se-component')) || content.lastElementChild;
+}
+function caretAtEnd(node) {
+  const r = document.createRange(); r.selectNodeContents(node); r.collapse(false);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+// SmartEditor turns pasted HTML into its own paragraphs; keep bold and size like it does
+content.addEventListener('paste', e => {
+  const html = e.clipboardData.getData('text/html');
+  const text = e.clipboardData.getData('text/plain');
+  if (!html && !text) return;
+  e.preventDefault();
+  const comp = currentComponent();
+  const box = document.createElement('div');
+  box.innerHTML = html || text.split('\n').map(t => `<p>${t}</p>`).join('');
+  let last = null;
+  box.querySelectorAll('p').forEach(p => {
+    const q = document.createElement('p'); q.className = 'se-text-paragraph'; q.innerHTML = p.innerHTML;
+    comp.appendChild(q); last = q;
+  });
+  const empty = comp.querySelector('.se-text-paragraph');
+  if (empty && empty.innerText.trim() === '' && empty !== last) empty.remove();
+  if (last) caretAtEnd(last);
+});
+document.querySelector('.se-image-toolbar-button').onclick = () => document.getElementById('file').click();
+document.getElementById('file').onchange = e => {
+  const comp = currentComponent();
+  const img = document.createElement('div');
+  img.className = 'se-component se-image'; img.contentEditable = 'false';
+  img.innerHTML = `<img src="${URL.createObjectURL(e.target.files[0])}">`;
+  const next = document.createElement('div');
+  next.className = 'se-component se-text'; next.innerHTML = '<p class="se-text-paragraph"><br></p>';
+  comp.after(img); img.after(next);
+  getSelection().removeAllRanges();  // like the real editor: the new photo is selected, not a text line
+  e.target.value = '';
+};
+document.querySelector('.publish_btn__mock').onclick = () => document.querySelector('.layer').style.display = 'block';
+document.getElementById('tag-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.value.trim()) {
+    const t = document.createElement('span'); t.className = 'tag'; t.textContent = e.target.value.trim();
+    document.querySelector('.tags').appendChild(t); e.target.value = '';
+  }
+});
+document.querySelector('.confirm_btn__mock').onclick = () => { location.hash = 'logNo=223456789012'; };
+</script>
+</body></html>

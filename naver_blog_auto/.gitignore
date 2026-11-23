@@ -1,0 +1,9 @@
+data/
+version.txt
+icon.png
+icon.ico
+build/
+dist/
+*.spec
+__pycache__/
+selftest.txt
