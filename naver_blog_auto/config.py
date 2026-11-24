@@ -33,7 +33,7 @@ CHOICES = {
     "TOPIC": {
         AUTO: "🤖 자동 (AI가 잘 될 주제를 골라 고정)", "hot": "🔥 실시간 인기 이슈 (분야 상관없이 지금 뜨는 것)",
         "it": "IT·테크·앱", "life": "생활 정보·꿀팁", "money": "재테크·경제·절약", "policy": "정부 지원금·제도",
-        "travel": "여행·나들이", "food": "맛집·요리·레시피", "health": "건강·운동 상식", "parenting": "육아·교육",
+        "travel": "여행·나들이", "food": "맛집·요리·레시피", "health": "건강·의학 상식", "parenting": "육아·교육",
         "beauty": "뷰티·패션", "self": "자기계발·공부", "pet": "반려동물", "home": "살림·인테리어",
         "car": "자동차", "realestate": "부동산", "culture": "영화·드라마·책",
         "love_show": "💕 연애예능 이슈 (연애전쟁·나는솔로·환승연애)", "love_star": "💕 스타 연애·결혼·결별 소식",
@@ -63,6 +63,7 @@ CHOICES = {
     },
     "IMAGE_COUNT": {AUTO: "🤖 자동 (4~6장)", "4": "4장", "5": "5장", "6": "6장"},
     "PUBLISH": {"publish": "바로 발행", "draft": "임시저장만 (확인 후 직접 발행)"},
+    "FORMAT": {"story": "기사형 — 짧은 줄·인용구 소제목·사진 많이 (기본)", "seo": "SEO 정보형 (예전 방식)"},
 }
 
 COMMON_DEFAULTS = {
@@ -88,6 +89,8 @@ ACCOUNT_DEFAULTS = {
     "STYLE": "honest_review",
     "TONE": "mom40",
     "CATEGORY": "",  # blog category to post in; empty = the AI picks the best fitting one
+    "FORMAT": "story",  # "story" = the tidy news-story layout for every category, "seo" = the older SEO layout
+    "PRESET": "",  # set once a known blog's preset was applied
     "V2": "",  # set once the account moved to the review style defaults
     "LENGTH": AUTO,
     "IMAGE_STYLE": AUTO,
@@ -119,6 +122,29 @@ LOVE = {
     "love_marriage": {"seeds": ["결혼 발표", "돌싱", "재혼", "이혼 숙려", "돌싱글즈"],
                       "focus": "결혼·돌싱·재혼 이야기 (방송·스타 소식, 공식 발표)",
                       "tags": ["결혼", "돌싱"], "naver": "결혼·돌싱 이야기"},
+}
+
+
+# news-story seeds for the other categories (연애 ones are in LOVE)
+STORY_TOPICS = {
+    "health": {"seeds": ["건강", "질병", "건강검진", "의학 연구", "영양제", "식약처"],
+               "focus": "건강·의학 최신 소식 (연구 결과, 질병 정보, 건강 관리 — 기사와 공식 기관 발표 기준)",
+               "tags": ["건강정보", "의학상식"]},
+    "money": {"seeds": ["재테크", "금리", "적금", "주식", "연말정산"], "focus": "재테크·경제 최신 소식",
+              "tags": ["재테크", "경제소식"]},
+    "policy": {"seeds": ["지원금", "정부 지원", "신청 방법", "제도 변경"], "focus": "정부 지원금·제도 최신 소식",
+               "tags": ["지원금", "정부정책"]},
+    "life": {"seeds": ["생활 정보", "꿀팁", "생활비"], "focus": "생활 정보 최신 소식", "tags": ["생활정보", "꿀팁"]},
+    "it": {"seeds": ["스마트폰", "AI", "신제품 출시", "앱"], "focus": "IT·테크 최신 소식", "tags": ["IT소식", "테크"]},
+    "food": {"seeds": ["맛집", "레시피", "신메뉴"], "focus": "맛집·요리 최신 소식", "tags": ["맛집", "요리"]},
+    "travel": {"seeds": ["여행", "축제", "가볼만한곳"], "focus": "여행·나들이 최신 소식", "tags": ["여행", "나들이"]},
+    "parenting": {"seeds": ["육아", "교육", "어린이집", "입시"], "focus": "육아·교육 최신 소식", "tags": ["육아", "교육"]},
+    "beauty": {"seeds": ["뷰티", "화장품", "패션"], "focus": "뷰티·패션 최신 소식", "tags": ["뷰티", "패션"]},
+}
+
+# known blogs: settings applied once after the Naver login finds the blog (the user can still change them)
+BLOG_PRESETS = {
+    "chedamso": {"TOPIC": "health", "CATEGORY": "나와의관계", "FORMAT": "story"},
 }
 
 
@@ -203,6 +229,10 @@ def load_account(aid):
             values["STYLE"] = "honest_review"
         values["V2"] = "1"
         save_account(aid, {"TONE": values["TONE"], "STYLE": values["STYLE"], "V2": "1"})
+    preset = BLOG_PRESETS.get(values.get("BLOG_ID", "").lower())
+    if preset and values.get("PRESET") != values["BLOG_ID"].lower():
+        values.update(preset, PRESET=values["BLOG_ID"].lower())
+        save_account(aid, dict(preset, PRESET=values["PRESET"]))
     return values
 
 
