@@ -565,9 +565,12 @@ def assign_story_photos(post, photos):
                 "같은 사진은 한 번만. 기사 제목으로 보아 그 자리에 맞는 사진을 고르고, 캡션에 쓸 '인물명'은 기사 제목에 "
                 "나온 이름이나 프로그램명으로 (사진 속 인물을 추측해서 단정하지 말 것). 맞는 사진이 없으면 -1.\n"
                 'JSON으로만: {"picks": [{"자리": 0, "번호": 0, "인물명": "..."}]}', temperature=0.2)
-            plan = {int(x["자리"]): (int(x["번호"]), str(x.get("인물명", "")).strip())
-                    for x in answer.get("picks", []) if int(x.get("번호", -1)) in range(len(photos))}
-        except (gemini.GeminiError, ValueError, KeyError, TypeError):
+            picks = answer.get("picks", []) if isinstance(answer, dict) else answer
+            plan = {}
+            for x in picks if isinstance(picks, list) else []:
+                if isinstance(x, dict) and int(x.get("번호", -1)) in range(len(photos)):
+                    plan[int(x.get("자리", -1))] = (int(x["번호"]), str(x.get("인물명", "")).strip())
+        except (gemini.GeminiError, ValueError, KeyError, TypeError, AttributeError):
             plan = None
     if not plan:  # no answer: in order
         plan = {j: (j, who) for j, (_, who) in enumerate(slots) if j < len(photos)}

@@ -167,6 +167,16 @@ def run(report=None, browser=True):
         assert images._meta(page, "og:image") == "https://img/a.jpg"
         assert images._meta(page, "og:article:author") == "톱스타뉴스"
         assert seo.clean("<b>희망등록 신청서</b> 접수<br>") == "희망등록 신청서 접수"
+        import gemini
+
+        fixed = gemini._parse_json('{"t": "질병관리청 "다발-계통 위축" 등", "x": [1, 2,]}')
+        assert fixed == {"t": '질병관리청 "다발-계통 위축" 등', "x": [1, 2]}, fixed
+        real_json = gemini.generate_json
+        gemini.generate_json = lambda *a, **k: [{"자리": 0, "번호": 0, "인물명": "질병관리청"}]  # a bare list answer
+        plan = images.assign_story_photos({"keyword": "k", "opening_image": {"who": "x"}, "sections": []},
+                                          [{"title": "t", "outlet": "o", "path": "p"}])
+        gemini.generate_json = real_json
+        assert plan["opening"] == (0, "질병관리청"), plan
         assert render.inline("<strong>꼭</strong>") == "<b>꼭</b>"
         import story as story_mod
 
