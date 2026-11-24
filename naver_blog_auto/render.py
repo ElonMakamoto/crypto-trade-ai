@@ -6,8 +6,8 @@ import seo
 
 
 def inline(text):
-    """Plain text with **bold** -> safe HTML."""
-    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html.escape(str(text)))
+    """Plain text with **bold** (or AI-written <b> tags) -> safe HTML with real bold."""
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html.escape(seo.untag(text)))
 
 
 HEADING_STYLE = "font-size:24px;font-weight:bold;"
@@ -18,7 +18,7 @@ CENTER = "text-align:center;"
 
 def heading_html(text):
     """Every heading the same: big, bold and centered (pasted on its own so it never picks up the text around it)."""
-    plain = re.sub(r"\*\*(.+?)\*\*", r"\1", str(text))
+    plain = seo.clean(text)
     return f'<p style="{CENTER}"><span style="{HEADING_STYLE}"><b>{html.escape(plain)}</b></span></p>'
 
 
@@ -51,7 +51,9 @@ class Builder:
             self.blocks.append({"type": "text", "html": html_part, "text": plain, "alone": alone})
 
     def heading(self, text):
+        self.text(GAP, "")  # 2 empty lines before (the paragraph above already ends with one)
         self.text(heading_html(text), seo.clean(text), alone=True)
+        self.text(GAP, "")  # and 2 after (the new line after the heading + this one)
 
     def image(self, item):
         self.blocks.append({"type": "image", "path": str(item["path"]), "caption": item.get("caption", "")})
@@ -138,7 +140,7 @@ def short_lines_html(chunk):
     return "".join(para_html(line) for line in chunk.split("\n") if line.strip()) + GAP
 
 
-def story_blocks(post, images, related_post=None, outlets=()):
+def story_blocks(post, images, related_post=None, outlets=(), love=True):
     """The reference layout: photo + caption, quote/question/context opening, 4-5 sections with a quotation
     subtitle and photos, a reader question, and the image-source footer (no link to other posts)."""
     by_place = {}
@@ -161,7 +163,9 @@ def story_blocks(post, images, related_post=None, outlets=()):
         image(by_place["top"])
     chunks(post.get("intro", []))
     for i, sec in enumerate(post.get("sections", [])):
-        b.blocks.append({"type": "quote", "text": sec["heading"]})
+        b.text(GAP, "")  # 2 empty lines before the subtitle (the last chunk already ends with one)
+        b.blocks.append({"type": "quote", "text": seo.clean(sec["heading"])})
+        b.text(GAP + GAP, "\n")  # and 2 after
         if ("section", i) in by_place:
             image(by_place[("section", i)])
         paras = sec.get("paragraphs", [])
@@ -173,7 +177,8 @@ def story_blocks(post, images, related_post=None, outlets=()):
     if post.get("question"):
         chunks([post["question"]])
     sources = ", ".join(outlets) or "각 방송사"
-    footer = [f"본문 글 이미지 출처 : {sources}", "모든 이미지 저작권은 방송사 각 SNS에 있습니다",
+    rights = "모든 이미지 저작권은 방송사 각 SNS에 있습니다" if love else "모든 이미지 저작권은 각 언론사·방송사에 있습니다"
+    footer = [f"본문 글 이미지 출처 : {sources}", rights,
               "무단 전재, 재배포 및 AI학습 이용 금지"]
     b.text("".join(f'<p style="{CENTER}"><span style="{FOOTER_STYLE}">{html.escape(x)}</span></p>' for x in footer),
            "\n".join(footer))

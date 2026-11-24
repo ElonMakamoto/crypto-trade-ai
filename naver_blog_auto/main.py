@@ -29,7 +29,8 @@ def make_story_post(aid, account, keyword=None):
     pics = images.make_story(post, keyword, account, out_dir, result["sources"], seed=f"{aid}{time.time()}")
     related = None  # no [함께보면 좋은 글] link at the end
     photo_outlets = list(dict.fromkeys(p["caption"].split("출처: ", 1)[1] for p in pics if "출처: " in p["caption"]))
-    blocks = render.story_blocks(post, pics, related, photo_outlets or post.get("sources_used") or result["outlets"][:3])
+    blocks = render.story_blocks(post, pics, related, photo_outlets or post.get("sources_used") or result["outlets"][:3],
+                                 love=config.is_love(account.get("TOPIC")))
     final = result["seo"]
     final["checks"].append({"ok": 8 <= len(pics) <= 10, "weight": 0, "name": "사진 8~10장", "detail": f"{len(pics)}장",
                             "fix": ""})
@@ -47,7 +48,7 @@ def make_story_post(aid, account, keyword=None):
 def make_post(aid, keyword=None):
     """Write the post and its images (nothing is uploaded). Returns the job dict saved as post.json."""
     account = config.load_account(aid)
-    if config.is_love(account.get("TOPIC")):
+    if config.is_love(account.get("TOPIC")) or account.get("FORMAT", "story") == "story":
         return make_story_post(aid, account, keyword)
     result = writer.generate(aid, account, keyword)
     keyword, post = result["keyword"], result["post"]

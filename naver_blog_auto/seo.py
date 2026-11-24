@@ -21,8 +21,19 @@ BANNED = [
 BANNED_RE = [re.compile(p) for p in BANNED]
 
 
+def untag(text):
+    """HTML the AI sometimes writes (<b>, <strong>, <br>, <p>...) -> plain text with **bold** marks."""
+    import html as _html
+
+    text = str(text or "")
+    text = re.sub(r"<\s*(b|strong)\s*>(.*?)<\s*/\s*\1\s*>", r"**\2**", text, flags=re.I | re.S)
+    text = re.sub(r"<\s*br\s*/?\s*>", " ", text, flags=re.I)
+    text = re.sub(r"</?\s*[a-zA-Z][^>]*>", "", text)
+    return _html.unescape(text)
+
+
 def clean(text):
-    return re.sub(r"\*\*(.+?)\*\*", r"\1", str(text or "")).strip()
+    return re.sub(r"\*\*(.+?)\*\*", r"\1", untag(text)).strip()
 
 
 def paragraphs(post):

@@ -70,7 +70,7 @@ def browser_test(blocks, tmp):
 STORY_RAW = {
     "keyword": "연애전쟁", "title": "이효리 \"제발 헤어져라\" 연애전쟁, 19커플 중 5커플 결국 이별한 이유",
     "opening_image": {"who": "이효리", "query": "연애전쟁"},
-    "opening": [["\"제발 헤어져라\"", "이효리의 한마디였습니다."], ["그 커플은 어떤 선택을 했을까요."]],
+    "opening": [["\"제발 헤어져라\"", "<b>이효리</b>의 한마디였습니다."], ["그 커플은 어떤 선택을 했을까요."]],
     "sections": [{"heading": f"소제목 {i}", "images": [{"who": "서장훈", "query": "연애전쟁"}],
                   "chunks": [["짧은 줄 하나", "짧은 줄 둘"], ["다만 시즌2는 아직 공식 발표되지 않았습니다."]]}
                  for i in range(1, 5)],
@@ -106,6 +106,7 @@ def story_browser_test(tmp):
             .filter(p => p.innerText.trim()).every(p => getComputedStyle(p).textAlign === 'center')""")
     assert len(found["quotes"]) == 4 and "소제목 1" in found["quotes"][0], found["quotes"]
     assert found["cards"] == 0 and "함께보면" not in found["text"], "no related-post link at the end"
+    assert "<b>" not in found["text"] and "</b>" not in found["text"], "no raw HTML tags in the post"
     for must in ("이효리 / 출처: 톱스타뉴스", "무단 전재, 재배포 및 AI학습 이용 금지"):
         assert must in found["text"], must
     assert n_images == 5
@@ -165,6 +166,14 @@ def run(report=None, browser=True):
                 'content="톱스타뉴스">')
         assert images._meta(page, "og:image") == "https://img/a.jpg"
         assert images._meta(page, "og:article:author") == "톱스타뉴스"
+        assert seo.clean("<b>희망등록 신청서</b> 접수<br>") == "희망등록 신청서 접수"
+        assert render.inline("<strong>꼭</strong>") == "<b>꼭</b>"
+        import story as story_mod
+
+        sb = render.story_blocks(story_mod.normalize(STORY_RAW, "x"), [], None, ["톱스타뉴스"])
+        q = next(i for i, b in enumerate(sb) if b["type"] == "quote")
+        assert sb[q - 1]["html"].endswith("<p><br></p><p><br></p>"), "2 empty lines before a subtitle"
+        assert sb[q + 1]["html"].startswith("<p><br></p><p><br></p>"), "2 empty lines after a subtitle"
         assert secure_store.decrypt(secure_store.encrypt("secret")) == "secret"
         assert timeslots.next_slot(timeslots.parse("09:30,19:30"), seed="a") is not None
         assert "Asia/Seoul" in str(timeslots.KST) or str(timeslots.KST) == "KST"

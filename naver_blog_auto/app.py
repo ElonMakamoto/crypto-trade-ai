@@ -291,7 +291,7 @@ class AccountPanel:
         self.topic_box = choice_box(pick_row, "TOPIC", self.vars["TOPIC"], width=44)
         self.topic_box.pack(side="left", padx=6)
         self.topic_box.bind("<<ComboboxSelected>>", lambda e: self.save(quiet=True), add="+")
-        ttk.Label(pick_row, text="💕 = 연애 이슈 기사형",
+        ttk.Label(pick_row, text="기사형: 짧은 줄·인용구 소제목·사진",
                   foreground="#666").pack(side="left")
         actions = ttk.Frame(frame)
         actions.pack(fill="x", pady=(0, 4))
@@ -353,6 +353,8 @@ class AccountPanel:
         r += 1
         pair("사진 장수", choice_box(tab, "IMAGE_COUNT", self.vars["IMAGE_COUNT"]))
         pair("글쓴이 소개", ttk.Entry(tab, textvariable=self.vars["PERSONA"]), 2)
+        r += 1
+        pair("글 형식", choice_box(tab, "FORMAT", self.vars["FORMAT"]))
         r += 1
         pair("카테고리", ttk.Entry(tab, textvariable=self.vars["CATEGORY"]))
         ttk.Label(tab, text="비우면 AI가 글에 맞는 카테고리를 골라요", foreground="#666").grid(

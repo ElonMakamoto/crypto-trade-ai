@@ -54,12 +54,37 @@ def system_prompt():
         return ""
 
 
-# ---------------------------------------------------------------- 1. which story
-def pick_story(aid, account):
-    """The newest love story that several outlets covered, in the chosen 연애 category."""
+def topic_info(aid, account):
+    """Search seeds, writing focus, tags and label of the account's category (any category, not only 연애)."""
+    topic = account.get("TOPIC", config.AUTO)
+    if topic in config.LOVE:
+        return dict(config.LOVE[topic], label=config.CHOICES["TOPIC"][topic])
+    if topic in config.STORY_TOPICS:
+        info = dict(config.STORY_TOPICS[topic], label=config.CHOICES["TOPIC"][topic])
+        if account.get("TOPIC_DETAIL"):
+            info["seeds"] = [account["TOPIC_DETAIL"]] + info["seeds"]
+        return info
+    if topic == "hot":
+        return {"seeds": keywords.trending()[:6] or ["화제"], "focus": "지금 한국에서 가장 화제인 소식",
+                "tags": ["이슈", "화제"], "label": config.CHOICES["TOPIC"]["hot"]}
     import writer
 
-    info = config.LOVE[account["TOPIC"]]
+    name = writer.topic_text(account) or writer.ensure_topic(aid, account)
+    name = re.sub(r"[^\w\s·]", "", name).strip()
+    return {"seeds": [w for w in re.split(r"[·,/\s]+", name) if len(w) >= 2][:5] or [name],
+            "focus": f"{name} 분야의 최신 소식과 정보", "tags": [name.replace(" ", "")[:15]], "label": name}
+
+
+def is_health(account):
+    return account.get("TOPIC") == "health"
+
+
+# ---------------------------------------------------------------- 1. which story
+def pick_story(aid, account):
+    """The newest story that several outlets covered, in the account's category."""
+    import writer
+
+    info = topic_info(aid, account)
     used = writer.used_keywords(aid)
     history = config.load_history(aid)
     headlines = []
@@ -67,9 +92,9 @@ def pick_story(aid, account):
         for item in keywords.news(seed, 8, days=3):
             headlines.append(f"{item['title']} ({item['date']})")
     headlines = list(dict.fromkeys(headlines))[:60]
-    print(f"💕 '{config.CHOICES['TOPIC'][account['TOPIC']]}' 최근 3일 기사 {len(headlines)}개")
+    print(f"📰 '{info['label']}' 최근 3일 기사 {len(headlines)}개")
     answer = gemini.generate_json(
-        f"카테고리: {config.CHOICES['TOPIC'][account['TOPIC']]} — {info['focus']}\n"
+        f"카테고리: {info['label']} — {info['focus']}\n"
         f"최근 3일 뉴스 제목 (제목 - 언론사 (날짜)):\n" + "\n".join(f"- {h}" for h in headlines) + "\n"
         f"이미 쓴 키워드(같은 이야기는 다시 쓰지 않음): {', '.join(h['keyword'] for h in history[-40:]) or '없음'}\n"
         "네이버 블로그에 쓸 이야기 하나를 고르세요. 기준: 가장 최근이고, 여러 언론사가 함께 다뤄 사실을 교차 확인할 수 "
@@ -163,8 +188,10 @@ def normalize(raw, keyword):
 
 
 def _context(account, notes, sources_text):
-    info = config.LOVE[account["TOPIC"]]
-    return (f"[카테고리] {config.CHOICES['TOPIC'][account['TOPIC']]} — {info['focus']}\n"
+    info = account.get("_topic_info") or {"label": "", "focus": "", "tags": []}
+    health = ("[건강·의학 글] 진단·처방처럼 쓰지 말고 기사·공식 기관이 말한 내용만 전달. 치료·약 효과를 단정하지 않기. "
+              "마지막 섹션에 '증상이 있으면 전문의와 상담하세요' 한 줄.\n" if is_health(account) else "")
+    return (f"[카테고리] {info['label']} — {info['focus']}\n{health}"
             f"[기본 태그 후보] {', '.join(info['tags'])}\n"
             f"[취재한 언론사] {sources_text or '조사 메모 참고'}\n"
             f"[조사 메모 — 사실·숫자·인용은 여기서만, 문장은 새로 쓰기]\n{notes or '없음'}\n")
@@ -256,6 +283,7 @@ def generate(aid, account, keyword=None):
     import writer
 
     story = ""
+    account = dict(account, _topic_info=topic_info(aid, account))
     if not keyword:
         keyword = writer.queued_keyword(aid, account)
     if not keyword:
@@ -283,7 +311,6 @@ def generate(aid, account, keyword=None):
         if result["score"] >= best[0]:
             best = (result["score"], post, result)
     _, post, result = best
-    info = config.LOVE[account["TOPIC"]]
-    post["tags"] = list(dict.fromkeys(post["tags"] + info["tags"]))[:10]
+    post["tags"] = list(dict.fromkeys(post["tags"] + account["_topic_info"]["tags"]))[:10]
     return {"keyword": post.get("keyword") or keyword, "related": {"naver": [], "google": [], "ranked": []},
             "must": [], "notes": notes, "post": post, "seo": result, "sources": sources, "outlets": outlets}

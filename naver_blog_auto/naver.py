@@ -302,6 +302,10 @@ class Editor:
             self.page.wait_for_timeout(250)
 
     def add_text(self, html, text):
+        if not text.strip():  # only empty lines: just press Enter that many times
+            for _ in range(max(1, html.count("<p"))):
+                self.page.keyboard.press("Enter")
+            return "blank-lines"
         expected = max(1, len(re.sub(r"\s", "", text)))
         for name, method in (("clipboard", self._paste_clipboard), ("paste-event", self._paste_event),
                              ("typing", self._type_lines)):
