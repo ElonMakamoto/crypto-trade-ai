@@ -123,6 +123,10 @@ def _call(body, timeout=150):
                 break
             if r.status_code not in (429, 500, 503) or attempt == len(busy_waits):
                 break
+            if r.status_code == 429 and "quota" in r.text.lower():
+                # out of free quota for this model: waiting won't help, try another model straight away
+                print(f"[AI] {model} 무료 한도를 다 썼어요 — 다른 모델로 바꿔서 요청합니다")
+                break
             wait = busy_waits[attempt]
             print(f"[AI] Gemini가 바쁘거나 무료 한도에 걸렸어요 (HTTP {r.status_code}) — {wait}초 후 다시 시도")
             time.sleep(wait)
@@ -162,15 +166,46 @@ def _parts(r):
         raise GeminiError(f"Gemini가 답을 주지 않았어요 ({reason})")
 
 
+def repair_json(text):
+    """Escape the double quotes the model left unescaped inside strings ("...라고 했다" in Korean text), and drop
+    trailing commas: a quote inside a string is one not followed by , : } ] or the end."""
+    out, in_str, i = [], False, 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and in_str:
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if ch == '"':
+            if not in_str:
+                in_str = True
+            else:
+                rest = text[i + 1:].lstrip()
+                if not rest or rest[0] in ",:}]":
+                    in_str = False
+                else:
+                    out.append('\\"')
+                    i += 1
+                    continue
+        elif ch == "\n" and in_str:
+            out.append("\\n")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return re.sub(r",\s*([}\]])", r"\1", "".join(out))
+
+
 def _parse_json(text):
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
-    try:
-        return json.loads(text)
-    except ValueError:
-        match = re.search(r"\{.*\}", text, re.S)
-        if match:
-            return json.loads(match.group(0))
-        raise
+    match = re.search(r"[\[{].*[\]}]", text, re.S)
+    candidates = [text] + ([match.group(0)] if match else [])
+    for candidate in candidates + [repair_json(c) for c in candidates]:
+        try:
+            return json.loads(candidate)
+        except ValueError:
+            continue
+    raise ValueError("JSON을 읽을 수 없어요")
 
 
 def generate_json(prompt, system=None, temperature=0.8, retries=2):

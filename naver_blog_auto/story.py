@@ -122,6 +122,18 @@ def research(keyword, story):
         "- 흐름: 상황 → 문제 → 전문가·MC 반응 → 당사자의 선택 → 결과·이후 소식\n"
         "- 아직 공식 발표되지 않았거나 확인되지 않은 것\n"
         "기사마다 다르게 적힌 숫자는 다르다고 적으세요. 기사에 없는 것은 쓰지 마세요.")
+    # the articles themselves (Naver News): real facts and quotes even when Google-search research isn't available
+    articles = 0
+    for url in keywords.naver_news_articles(keyword, 8):
+        title, text = keywords.article_text(url)
+        if len(text) < 200:
+            continue
+        name = outlet(url) if "naver.com" not in url else ""
+        notes += f"\n\n[기사 {articles + 1}] {title} {('— ' + name) if name else ''}\n{text}"
+        articles += 1
+        if articles >= 4:
+            break
+    print(f"   기사 본문 {articles}개를 읽었어요")
     headlines = keywords.news(keyword, 10, days=14)
     if headlines:
         notes += "\n\n[관련 기사 제목 — 제목 - 언론사 (날짜)]\n" + "\n".join(
@@ -148,7 +160,8 @@ FORMAT = """JSON으로만 답하세요. 형식:
  "sources_used": ["실제로 사실을 가져온 언론사 이름"]
 }
 opening과 chunks는 "덩어리" 목록입니다. 덩어리 하나 = 1~2줄, 줄 하나 = 짧은 문장 하나(또는 문장의 앞/뒤 절반).
-덩어리 사이에는 빈 줄이 들어갑니다."""
+덩어리 사이에는 빈 줄이 들어갑니다.
+글 안의 인용은 반드시 둥근 따옴표 “ ” 와 ‘ ’ 로 쓰세요. 곧은 큰따옴표(")는 JSON 문법에만 씁니다. HTML 태그는 쓰지 마세요."""
 
 
 def _lines(value):
@@ -291,7 +304,7 @@ def generate(aid, account, keyword=None):
     print("📚 여러 언론 보도 조사 중 (구글 검색 + 뉴스)...")
     notes, sources, outlets = research(keyword, story)
     print(f"   취재 출처: {', '.join(outlets[:8]) or '없음'}")
-    print("✍ 글 쓰는 중 (연애 이슈 형식)...")
+    print("✍ 글 쓰는 중 (기사형)...")
     post = write(keyword, story, notes, outlets, account)
     result = check(post, keyword)
     print(seo.report(result))

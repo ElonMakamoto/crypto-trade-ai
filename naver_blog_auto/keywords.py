@@ -223,3 +223,27 @@ def naver_news_articles(query, limit=10):
     links = [m.group(0) for m in NAVER_ARTICLE.finditer(page)]
     links += re.findall(r'href="(https?://[^"]+)"[^>]*class="[^"]*news_tit', page)
     return list(OrderedDict.fromkeys(links))[:limit]
+
+
+def article_text(url, limit=1800):
+    """The body text of a news article page (Naver News article layout first, then common layouts)."""
+    r = _get(url)
+    if not r:
+        return "", ""
+    page = r.text
+    title = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', page)
+    body = None
+    for pattern in (r'<article[^>]+id="dic_area"[^>]*>(.*?)</article>', r'<div[^>]+id="dic_area"[^>]*>(.*?)</div>',
+                    r'<div[^>]+id="articeBody"[^>]*>(.*?)</div>', r'<article[^>]*>(.*?)</article>',
+                    r'<div[^>]+(?:id|class)="[^"]*(?:article[_-]?(?:body|view|content)|news_?body)[^"]*"[^>]*>(.*?)</div>'):
+        m = re.search(pattern, page, re.S | re.I)
+        if m and len(re.sub(r"<[^>]+>", "", m.group(1)).strip()) > 200:
+            body = m.group(1)
+            break
+    if not body:
+        return (html.unescape(title.group(1)) if title else ""), ""
+    body = re.sub(r"<(script|style|figure|figcaption)[^>]*>.*?</\1>", " ", body, flags=re.S | re.I)
+    body = re.sub(r"<br\s*/?>", "\n", body, flags=re.I)
+    text = html.unescape(re.sub(r"<[^>]+>", " ", body))
+    text = re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n", text)).strip()
+    return (html.unescape(title.group(1)) if title else ""), text[:limit]
