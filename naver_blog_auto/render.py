@@ -140,7 +140,7 @@ def short_lines_html(chunk):
 
 def story_blocks(post, images, related_post=None, outlets=()):
     """The reference layout: photo + caption, quote/question/context opening, 4-5 sections with a quotation
-    subtitle and photos, a reader question, [함께보면 좋은 글] link card, and the image-source footer."""
+    subtitle and photos, a reader question, and the image-source footer (no link to other posts)."""
     by_place = {}
     for item in images:
         place = item["place"]
@@ -172,10 +172,6 @@ def story_blocks(post, images, related_post=None, outlets=()):
         chunks(paras[half:])
     if post.get("question"):
         chunks([post["question"]])
-    if related_post and related_post.get("url"):
-        b.text(para_html("**[함께보면 좋은 글]**"), "[함께보면 좋은 글]")
-        b.blocks.append({"type": "link", "url": related_post["url"], "title": related_post.get("title", "")})
-        b.text(GAP, "")
     sources = ", ".join(outlets) or "각 방송사"
     footer = [f"본문 글 이미지 출처 : {sources}", "모든 이미지 저작권은 방송사 각 SNS에 있습니다",
               "무단 전재, 재배포 및 AI학습 이용 금지"]
