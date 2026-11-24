@@ -3,7 +3,7 @@
     title       [person/show] + "direct quote" + concrete number/fact + hook ("~한 이유", "결국 ~")
     opening     image + gray caption "이름 / 출처: 언론사", the quote, a question, then the context
     sections    4-5, each: a quotation-style subtitle, 1-2 images with captions, very short lines
-    ending      a reader question, [함께보면 좋은 글] + a link card to my latest post, the image-source footer
+    ending      a reader question, then the image-source footer
 
 Facts and quotes come only from what several news outlets reported (Gemini with Google Search + Google News);
 the post is written in new sentences, never copied from one article.

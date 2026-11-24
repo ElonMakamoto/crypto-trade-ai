@@ -18,28 +18,6 @@ import render
 import writer
 
 
-def latest_post(aid):
-    """My most recent published post (any category), for [함께보면 좋은 글]: the app's own history first,
-    otherwise the blog's RSS feed."""
-    for item in reversed(config.load_history(aid)):
-        if item.get("url") and not item.get("draft"):
-            return {"url": item["url"], "title": item.get("title", "")}
-    blog = config.load_account(aid).get("BLOG_ID")
-    if blog:
-        import xml.etree.ElementTree as ET
-
-        import requests
-
-        try:
-            r = requests.get(f"https://rss.blog.naver.com/{blog}.xml", timeout=15)
-            item = ET.fromstring(r.content).find("./channel/item") if r.ok else None
-            if item is not None and item.findtext("link"):
-                return {"url": item.findtext("link").split("?")[0], "title": item.findtext("title") or ""}
-        except (requests.RequestException, ET.ParseError):
-            pass
-    return None
-
-
 def make_story_post(aid, account, keyword=None):
     """연애 categories: a news-story post in the reference style."""
     import story
@@ -49,7 +27,7 @@ def make_story_post(aid, account, keyword=None):
     out_dir = config.output_dir(aid) / f"{datetime.now():%Y%m%d-%H%M}_{images.slug(keyword)}"
     out_dir.mkdir(parents=True, exist_ok=True)
     pics = images.make_story(post, keyword, account, out_dir, result["sources"], seed=f"{aid}{time.time()}")
-    related = latest_post(aid)
+    related = None  # no [함께보면 좋은 글] link at the end
     photo_outlets = list(dict.fromkeys(p["caption"].split("출처: ", 1)[1] for p in pics if "출처: " in p["caption"]))
     blocks = render.story_blocks(post, pics, related, photo_outlets or post.get("sources_used") or result["outlets"][:3])
     final = result["seo"]

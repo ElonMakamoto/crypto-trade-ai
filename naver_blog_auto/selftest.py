@@ -79,7 +79,7 @@ STORY_RAW = {
 
 
 def story_browser_test(tmp):
-    """The 연애 story layout in the stand-in editor: quotation subtitles, captions, link card, footer."""
+    """The 연애 story layout in the stand-in editor: quotation subtitles, captions, footer, no related-post link."""
     import config
     import naver
     import render
@@ -105,15 +105,15 @@ def story_browser_test(tmp):
         found_center = s.page.evaluate("""() => [...document.querySelectorAll('.se-content .se-text .se-text-paragraph')]
             .filter(p => p.innerText.trim()).every(p => getComputedStyle(p).textAlign === 'center')""")
     assert len(found["quotes"]) == 4 and "소제목 1" in found["quotes"][0], found["quotes"]
-    assert found["cards"] == 1, methods
-    for must in ("이효리 / 출처: 톱스타뉴스", "[함께보면 좋은 글]", "무단 전재, 재배포 및 AI학습 이용 금지"):
+    assert found["cards"] == 0 and "함께보면" not in found["text"], "no related-post link at the end"
+    for must in ("이효리 / 출처: 톱스타뉴스", "무단 전재, 재배포 및 AI학습 이용 금지"):
         assert must in found["text"], must
     assert n_images == 5
     centered = found_center
     assert centered, "body text should be centered"
     result = story.check(post, "연애전쟁")
     assert result["checks"], result
-    return f"story ok ({', '.join(sorted(methods))}; 4 quote subtitles, link card, {n_images} images)"
+    return f"story ok ({', '.join(sorted(methods))}; 4 quote subtitles, no link card, {n_images} images)"
 
 
 def run(report=None, browser=True):
