@@ -357,6 +357,14 @@ class AccountPanel:
         pair("글쓴이 소개", ttk.Entry(tab, textvariable=self.vars["PERSONA"]), 2)
         r += 1
         pair("글 형식", choice_box(tab, "FORMAT", self.vars["FORMAT"]))
+        safe = ttk.Frame(tab)
+        ttk.Checkbutton(safe, text="🛡 저품질 예방", variable=self.vars["SAFE_MODE"], onvalue="1", offvalue="").pack(side="left")
+        ttk.Label(safe, text="  하루 최대").pack(side="left")
+        daily = ttk.Combobox(safe, values=["1", "2", "3"], state="readonly", width=3, textvariable=self.vars["DAILY_MAX"])
+        daily.pack(side="left", padx=4)
+        ttk.Label(safe, text="개").pack(side="left")
+        ttk.Label(tab, text="").grid(row=r, column=2)
+        safe.grid(row=r, column=2, columnspan=2, sticky="w", padx=10)
         r += 1
         pair("카테고리", ttk.Entry(tab, textvariable=self.vars["CATEGORY"]))
         ttk.Label(tab, text="비우면 AI가 글에 맞는 카테고리를 골라요", foreground="#666").grid(
@@ -557,6 +565,10 @@ class AccountPanel:
             with self.app.round_lock:  # one account at a time
                 if not job:
                     print(f"\n===== {config.account_label(self.aid)} · {timeslots.now():%m/%d %H:%M} =====\n")
+                    wait = "" if dry_run else bot.pace_check(self.aid, config.load_account(self.aid))
+                    if wait:
+                        print(f"🛡 저품질 예방: 이번에는 쉬어요 — {wait}. (끄려면 ⚙ 글 설정 → 저품질 예방 해제)\n")
+                        return True
                     job = bot.make_post(self.aid)
                     self.app.root.after(0, self.reload_fields)
                     if dry_run:

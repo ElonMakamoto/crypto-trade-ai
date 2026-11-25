@@ -174,6 +174,9 @@ def story_blocks(post, images, related_post=None, outlets=(), love=True):
         if ("section_mid", i) in by_place:
             image(by_place[("section_mid", i)])
         chunks(paras[half:])
+    if "outro" in by_place:
+        b.text(GAP, "")
+        image(by_place["outro"])
     if post.get("question"):
         chunks([post["question"]])
     sources = ", ".join(outlets) or "각 방송사"

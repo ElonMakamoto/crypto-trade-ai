@@ -70,11 +70,54 @@ def make_post(aid, keyword=None):
     return job
 
 
+def posted_today(aid):
+    today = time.strftime("%Y-%m-%d")
+    return [h for h in config.load_history(aid) if h.get("time", "").startswith(today) and not h.get("draft")]
+
+
+def quality_gate(job, account):
+    """저품질 예방: reasons this post should not go public now ([] = fine). Posts that fail are saved as drafts."""
+    if account.get("SAFE_MODE", "1") != "1":
+        return []
+    reasons = []
+    stats, score = job["seo"]["stats"], job["seo"]["score"]
+    if score < 75:
+        reasons.append(f"형식 점수 {score}점 (75점 미만)")
+    if stats.get("chars_with_spaces", stats["chars"]) < 1300:
+        reasons.append(f"본문이 짧아요 ({stats.get('chars_with_spaces', stats['chars'])}자)")
+    if not any(b["type"] == "image" for b in job["blocks"]):
+        reasons.append("사진이 없어요")
+    risky = [c for c in job["seo"]["checks"] if "위험 단어" in c["name"] and not c["ok"]]
+    if risky:
+        reasons.append(f"위험 단어: {risky[0]['detail']}")
+    return reasons
+
+
+def pace_check(aid, account):
+    """저품질 예방: too many posts today, or the last one too recent -> a reason to wait ("" = fine)."""
+    if account.get("SAFE_MODE", "1") != "1":
+        return ""
+    today = posted_today(aid)
+    limit = int(account.get("DAILY_MAX") or 2)
+    if len(today) >= limit:
+        return f"오늘 이미 {len(today)}개를 올렸어요 (하루 최대 {limit}개)"
+    if today:
+        last = time.mktime(time.strptime(today[-1]["time"], "%Y-%m-%d %H:%M"))
+        if time.time() - last < 3 * 3600:
+            return "마지막 글을 올린 지 3시간이 안 됐어요"
+    return ""
+
+
 def publish_job(job):
     """Upload a prepared post to the account's Naver blog and record it."""
     aid = job["aid"]
     account = config.load_account(aid)
     publish = account.get("PUBLISH", "publish") == "publish"
+    problems = quality_gate(job, account)
+    if publish and problems:
+        print("🛡 저품질 예방: 이 글은 공개하지 않고 임시저장해요 — " + " / ".join(problems))
+        print("   (확인하고 고친 뒤 네이버에서 직접 발행하세요. 끄려면 ⚙ 글 설정 → 저품질 예방 해제)")
+        publish = False
     from pathlib import Path
 
     # the Naver category set for this app category (⚙ 카테고리 연결), else the account's, else the AI's pick

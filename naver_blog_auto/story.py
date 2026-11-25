@@ -231,6 +231,10 @@ def revise(post, keyword, notes, outlets, account, issues):
 QUOTE_RE = re.compile(r"[\"“”‘’']")
 HOOK_RE = re.compile(r"(이유|결국|결말|선택|근황|까닭|사연|진짜|속사정|한 말)")
 HYPE = [r"충격", r"경악", r"역대급", r"미쳤", r"소름", r"대박", r"헐", r"최악의", r"막장"]
+# words that get posts flagged as spam/ads or as illegal medical advertising
+RISKY = [r"카지노", r"토토", r"도박", r"바카라", r"대출", r"급전", r"성인", r"19금", r"비아그라", r"최저가", r"무료\s?증정",
+         r"할인\s?코드", r"구매\s?링크", r"클릭", r"카톡\s?문의", r"오픈\s?채팅", r"완치", r"100%\s?효과", r"부작용\s?없",
+         r"특효", r"기적의", r"즉효"]
 
 
 def body_lines(post):
@@ -287,6 +291,9 @@ def check(post, keyword):
     add(5 <= len(post.get("tags", [])) <= 10, 5, "태그 5~10개", f"{len(post.get('tags', []))}개",
         "인물·프로그램·주제 태그를 5~10개로 맞추세요.")
     add(not hype, 5, "과장·자극 표현 없음", ", ".join(hype) or "없음", f"다음 표현을 빼세요: {', '.join(hype)}")
+    risky = sorted({m.group(0) for p in RISKY for m in re.finditer(p, title + "\n" + body)})
+    add(not risky, 10, "저품질 위험 단어 없음 (광고·도박·의료 과장)", ", ".join(risky) or "없음",
+        f"다음 단어는 네이버 저품질·광고 판정 위험이 있어요. 빼거나 다른 말로 바꾸세요: {', '.join(risky)}")
     total = sum(c["weight"] for c in checks)
     score = round(100 * sum(c["weight"] for c in checks if c["ok"]) / total)
     return {"score": score, "checks": checks, "issues": [c["fix"] for c in checks if not c["ok"]],
