@@ -430,6 +430,42 @@ class Editor:
                 return True
         return False
 
+    MARK_AFTER = """(sel_) => {
+        document.querySelectorAll('[data-nba-next]').forEach(e => e.removeAttribute('data-nba-next'));
+        const all = document.querySelectorAll(sel_); const last = all[all.length - 1];
+        let n = last && last.nextElementSibling;
+        while (n && !(n.classList && n.classList.contains('se-component'))) n = n.nextElementSibling;
+        const p = n && n.classList.contains('se-text') && n.querySelector('.se-text-paragraph');
+        if (p) { p.setAttribute('data-nba-next', '1'); return true; } return false; }"""
+
+    def leave_quote(self):
+        """After typing a quotation subtitle: get the cursor into a text line below it. Tries the line below
+        (clicking it), the arrow keys (quote text -> source line -> below), then Enter for a new line."""
+        sel = ".se-component.se-quotation"
+        if self.frame.evaluate(self.CARET_AFTER, sel):
+            return True
+        if self.frame.evaluate(self.MARK_AFTER, sel):
+            try:
+                self.frame.locator("[data-nba-next]").first.click(timeout=3000)
+                self.page.keyboard.press("End")
+                if self.frame.evaluate(self.CARET_AFTER, sel):
+                    return True
+            except Exception:
+                pass
+        for keys in (["ArrowDown"], ["ArrowDown"], ["ArrowDown"], ["End", "Enter"], ["ArrowDown"]):
+            for key in keys:
+                self.page.keyboard.press(key)
+            self.page.wait_for_timeout(150)
+            if self.frame.evaluate(self.CARET_AFTER, sel):
+                return True
+        if self.frame.evaluate(self.MARK_AFTER, sel):  # Enter may have made the line below
+            try:
+                self.frame.locator("[data-nba-next]").first.click(timeout=3000)
+                return self.frame.evaluate(self.CARET_AFTER, sel)
+            except Exception:
+                pass
+        return False
+
     def count(self, selector):
         return self.frame.evaluate("(s) => document.querySelectorAll(s).length", selector)
 
@@ -448,7 +484,7 @@ class Editor:
             if self.count(".se-component.se-quotation") > before:
                 self.page.wait_for_timeout(300)
                 self.page.keyboard.insert_text(text)
-                if not self.caret_after(".se-component.se-quotation"):
+                if not self.leave_quote():
                     print("   ⚠ 인용구 다음 줄로 커서를 옮기지 못했어요")
                 return "quote"
         except Exception:
@@ -655,3 +691,59 @@ def post(aid, title, blocks, tags, publish=True, write_url=None, headless=None, 
                     pass
             raise
 
+
+
+def browser_news_links(query, limit=10):
+    """Last resort when the plain requests found no articles: search Naver News in a hidden browser (the same
+    Edge/Chrome the app posts with), like a person would, and collect the article links."""
+    from playwright.sync_api import Error, sync_playwright
+    from urllib.parse import quote
+
+    channel = config.load_common().get("BROWSER") or "msedge"
+    links = []
+    try:
+        with sync_playwright() as pw:
+            kwargs = {"headless": True}
+            if os.environ.get("NAVER_BROWSER_PATH"):
+                kwargs["executable_path"] = os.environ["NAVER_BROWSER_PATH"]
+            else:
+                kwargs["channel"] = channel
+            browser = pw.chromium.launch(**kwargs)
+            page = browser.new_page(user_agent=UA, locale="ko-KR")
+            for url in (f"https://search.naver.com/search.naver?where=news&sort=1&query={quote(query)}",
+                        f"https://search.daum.net/search?w=news&sort=recency&q={quote(query)}"):
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(1500)
+                    hrefs = page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+                except Error:
+                    continue
+                for h in hrefs:
+                    if re.search(r"n\.news\.naver\.com/(?:mnews/)?article/\d+/\d+|v\.daum\.net/v/\d{10,}|"
+                                 r"entertain\.naver\.com/(?:now/)?article/\d+/\d+", h):
+                        links.append(h.split("?")[0])
+                if len(set(links)) >= limit:
+                    break
+            browser.close()
+    except Exception as e:
+        print(f"   (브라우저로 기사 찾기 실패: {str(e).splitlines()[0][:80]})")
+    links = list(dict.fromkeys(links))[:limit]
+    print(f"   브라우저로 찾은 기사 {len(links)}개")
+    return links
+
+
+_found_articles = {}
+
+
+def find_articles(query, limit=10):
+    """News article links: quick web requests first, the hidden browser if those found nothing.
+    Remembered per query, so the article text and the photos use the same search."""
+    import keywords
+
+    if query in _found_articles:
+        return _found_articles[query][:limit]
+    links = keywords.news_article_links(query, limit)
+    if len(links) < 3:
+        links = list(dict.fromkeys(links + browser_news_links(query, limit)))[:limit]
+    _found_articles[query] = links
+    return links

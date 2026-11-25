@@ -542,9 +542,9 @@ def collect_story_photos(sources, dest_dir, base, want=12):
 
 def news_photo_sources(query, limit=10):
     """Article pages to take photos from: Naver News search for the query."""
-    import keywords
+    import naver
 
-    return [{"title": "", "uri": u} for u in keywords.naver_news_articles(query, limit)]
+    return [{"title": "", "uri": u} for u in naver.find_articles(query, limit)]
 
 
 def assign_story_photos(post, photos):
