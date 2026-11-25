@@ -26,7 +26,8 @@ PROFILES_DIR = DATA_DIR / "profiles"  # one browser profile per account: the Nav
 STATE_DIR = DATA_DIR / "state"
 
 AUTO = "auto"
-ACCOUNTS = {"a": "계정 1", "b": "계정 2"}
+ACCOUNTS = {"a": "계정 1", "b": "계정 2"}  # refreshed from the saved list (accounts can be added in the app)
+ACCOUNT_SLOTS = "abcdef"  # up to 6 accounts
 
 # ---------------------------------------------------------------- choices (value -> label shown in the app)
 CHOICES = {
@@ -73,6 +74,7 @@ COMMON_DEFAULTS = {
     "PEXELS_API_KEY": "",
     "BROWSER": "msedge",  # msedge (built into Windows) or chrome
     "SHOW_BROWSER": "1",  # show the browser window while posting (recommended)
+    "THEME": "white",  # black / green / white
     # {app category: Naver blog category name} as JSON; empty entries fall back to LOVE[...]["naver"] / the AI
     "CATEGORY_MAP": "",
 }
@@ -172,7 +174,8 @@ def save_category_map(mapping):
 
 
 # the two accounts post at different times by default
-DEFAULT_TIMES = {"a": "09:30,19:30", "b": "11:00,21:00"}
+DEFAULT_TIMES = {"a": "09:30,19:30", "b": "11:00,21:00", "c": "13:30,22:00", "d": "08:30,17:30",
+                 "e": "12:00,20:30", "f": "10:30,18:30"}
 
 _lock = threading.RLock()
 
@@ -293,5 +296,40 @@ def add_history(aid, item):
         save_history(aid, items[-500:])
 
 
+def refresh_accounts():
+    """ACCOUNTS from the saved list of account ids (default: a, b)."""
+    with _lock:
+        ids = _read().get("account_ids") or ["a", "b"]
+    ids = [a for a in ACCOUNT_SLOTS if a in ids] or ["a", "b"]
+    ACCOUNTS.clear()
+    ACCOUNTS.update({a: f"계정 {ACCOUNT_SLOTS.index(a) + 1}" for a in ids})
+    return ACCOUNTS
+
+
+def add_account():
+    """Add the next free account slot; returns its id, or None when all 6 are used."""
+    with _lock:
+        free = [a for a in ACCOUNT_SLOTS if a not in ACCOUNTS]
+        if not free:
+            return None
+        data = _read()
+        data["account_ids"] = list(ACCOUNTS) + [free[0]]
+        _write(data)
+    refresh_accounts()
+    return free[0]
+
+
+def remove_account(aid):
+    """Take an account off the list (its settings, login and history stay on disk)."""
+    with _lock:
+        data = _read()
+        data["account_ids"] = [a for a in ACCOUNTS if a != aid]
+        _write(data)
+    refresh_accounts()
+
+
 def other_accounts(aid):
     return [a for a in ACCOUNTS if a != aid]
+
+
+refresh_accounts()
