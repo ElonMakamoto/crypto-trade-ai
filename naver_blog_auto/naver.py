@@ -10,6 +10,7 @@ checked (did the text/images really appear?) and falls back to another way of do
 import os
 import re
 import time
+from pathlib import Path
 
 import config
 
@@ -188,9 +189,10 @@ def check(aid):
 
 # ---------------------------------------------------------------- the editor
 class Editor:
-    def __init__(self, page):
+    def __init__(self, page, shot_dir=None):
         self.page = page
         self.frame = None
+        self.shot_dir = shot_dir
 
     def wait_ready(self, timeout=60):
         """Find the SmartEditor (top page or an inner frame)."""
@@ -238,9 +240,6 @@ class Editor:
               if (c.querySelector('.se-component')) return;
               n += (c.innerText || '').replace(/\\s/g, '').length; });
             return n; }""")
-
-    def image_count(self):
-        return self.frame.evaluate("() => document.querySelectorAll('.se-component.se-image').length")
 
     # ----- title
     def set_title(self, title):
@@ -327,39 +326,91 @@ class Editor:
         const el = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement;
         const comp = el && el.closest('.se-component');
         if (!comp || !comp.classList.contains('se-text')) return false;
-        const imgs = document.querySelectorAll('.se-component.se-image');
+        const imgs = document.querySelectorAll('.se-component.se-image, .se-component.se-imageGroup');
         if (!imgs.length) return true;
         return !!(imgs[imgs.length - 1].compareDocumentPosition(comp) & Node.DOCUMENT_POSITION_FOLLOWING); }"""
 
     MARK_AFTER_IMAGE = """() => {
         document.querySelectorAll('[data-nba-next]').forEach(e => e.removeAttribute('data-nba-next'));
-        const imgs = document.querySelectorAll('.se-component.se-image'); const last = imgs[imgs.length - 1];
+        const imgs = document.querySelectorAll('.se-component.se-image, .se-component.se-imageGroup'); const last = imgs[imgs.length - 1];
         let n = last && last.nextElementSibling;
         while (n && !(n.classList && n.classList.contains('se-component'))) n = n.nextElementSibling;
         const p = n && n.classList.contains('se-text') && n.querySelector('.se-text-paragraph');
         if (p) { p.setAttribute('data-nba-next', '1'); return true; } return false; }"""
 
-    def add_image(self, path):
-        from playwright.sync_api import TimeoutError as PWTimeout
+    IMAGE_COMPONENTS = ".se-component.se-image, .se-component.se-imageGroup, .se-component[class*='se-image']"
 
-        before = self.image_count()
+    def image_count(self):
+        return self.frame.evaluate("(s) => document.querySelectorAll(s).length", self.IMAGE_COMPONENTS)
+
+    def _wait_image(self, before, seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            if self.image_count() > before:
+                return True
+            self.page.wait_for_timeout(400)
+        return False
+
+    def _upload_chooser(self, path):
         button = self.frame.locator(IMAGE_BUTTON).first
-        try:
-            with self.page.expect_file_chooser(timeout=10000) as chooser:
-                button.click()
-            chooser.value.set_files(str(path))
-        except PWTimeout:
-            inputs = self.frame.locator("input[type=file]")
-            if not inputs.count():
-                raise EditorError("사진 올리기 버튼을 찾지 못했어요")
-            inputs.first.set_input_files(str(path))
-        end = time.time() + 45
-        while self.image_count() <= before:
-            if time.time() > end:
-                raise EditorError("사진이 올라가지 않았어요")
-            self.page.wait_for_timeout(500)
-        self.page.wait_for_timeout(1200)
-        self.caret_below_image()
+        with self.page.expect_file_chooser(timeout=8000) as chooser:
+            button.click(timeout=5000)
+        chooser.value.set_files(str(path))
+
+    def _upload_input(self, path):
+        for frame in [self.frame] + [f for f in self.page.frames if f is not self.frame]:
+            inputs = frame.locator("input[type=file]")
+            if inputs.count():
+                inputs.last.set_input_files(str(path))
+                return
+        raise EditorError("no file input")
+
+    def _file_js(self, path, event):
+        import base64
+        import mimetypes
+
+        data = base64.b64encode(Path(path).read_bytes()).decode()
+        kind = mimetypes.guess_type(str(path))[0] or "image/jpeg"
+        self.frame.evaluate("""([data, name, kind, event]) => {
+            const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+            const file = new File([bytes], name, {type: kind});
+            const dt = new DataTransfer(); dt.items.add(file);
+            const sel = window.getSelection(); const node = sel && sel.anchorNode;
+            const target = (node ? (node.nodeType === 1 ? node : node.parentElement) : null)
+                || document.querySelector('.se-content') || document.body;
+            if (event === 'paste') {
+                target.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
+            } else {
+                for (const type of ['dragenter', 'dragover', 'drop'])
+                    target.dispatchEvent(new DragEvent(type, {dataTransfer: dt, bubbles: true, cancelable: true}));
+            }}""", [data, Path(path).name, kind, event])
+
+    def add_image(self, path):
+        """Upload one photo where the cursor is. Tries the photo button, the editor's file input, pasting the
+        photo and dropping it, until a photo really appears in the post."""
+        before = self.image_count()
+        tried = []
+        for name, method, wait in (("사진 버튼", self._upload_chooser, 40), ("파일 입력칸", self._upload_input, 30),
+                                   ("붙여넣기", lambda p: self._file_js(p, "paste"), 25),
+                                   ("끌어놓기", lambda p: self._file_js(p, "drop"), 25)):
+            try:
+                method(path)
+            except Exception as e:
+                tried.append(f"{name}: {str(e).splitlines()[0][:50]}")
+                continue
+            if self._wait_image(before, wait):
+                self.page.wait_for_timeout(1200)
+                self.caret_below_image()
+                return name
+            tried.append(f"{name}: 사진이 나타나지 않음")
+            self.dismiss_popups()
+        if self.shot_dir:
+            try:
+                self.page.screenshot(path=str(Path(self.shot_dir) / "image_error.png"))
+                print(f"   (사진 오류 화면 저장: {Path(self.shot_dir) / 'image_error.png'})")
+            except Exception:
+                pass
+        raise EditorError("사진이 올라가지 않았어요 — " + " / ".join(tried))
 
     # ----- quotation subtitle and link card
     CARET_AFTER = """(sel_) => {
@@ -550,9 +601,9 @@ def fill(editor, title, blocks):
     for i, block in enumerate(blocks, 1):
         if block["type"] == "image":
             try:
-                editor.add_image(block["path"])
+                how = editor.add_image(block["path"])
                 n_images += 1
-                print(f"   🖼 사진 {n_images}장 올림")
+                print(f"   🖼 사진 {n_images}장 올림 ({how})")
             except Exception as e:
                 print(f"   ⚠ 사진을 못 올렸어요: {str(e).splitlines()[0][:100]}")
         elif block["type"] == "quote":
@@ -583,7 +634,7 @@ def post(aid, title, blocks, tags, publish=True, write_url=None, headless=None, 
             url = write_url or f"https://blog.naver.com/{blog}/postwrite"
             print(f"🌐 글쓰기 화면 여는 중: {url}")
             s.page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            editor = Editor(s.page)
+            editor = Editor(s.page, shot_dir)
             editor.wait_ready()
             methods, n_images = fill(editor, title, blocks)
             print(f"   본문 입력 방식: {', '.join(sorted(methods)) or '-'} · 사진 {n_images}장")

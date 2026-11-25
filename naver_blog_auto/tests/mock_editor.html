@@ -47,7 +47,21 @@ function caretAtEnd(node) {
   const s = getSelection(); s.removeAllRanges(); s.addRange(r);
 }
 // SmartEditor turns pasted HTML into its own paragraphs; keep bold and size like it does
+function insertImage(file) {
+  const comp = currentComponent();
+  const img = document.createElement('div');
+  img.className = 'se-component se-image'; img.contentEditable = 'false';
+  img.innerHTML = `<img src="${URL.createObjectURL(file)}">`;
+  const next = document.createElement('div');
+  next.className = 'se-component se-text'; next.innerHTML = '<p class="se-text-paragraph"><br></p>';
+  comp.after(img); img.after(next);
+  getSelection().removeAllRanges();
+}
+content.addEventListener('drop', e => {
+  if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); insertImage(e.dataTransfer.files[0]); }
+});
 content.addEventListener('paste', e => {
+  if (e.clipboardData.files && e.clipboardData.files.length) { e.preventDefault(); insertImage(e.clipboardData.files[0]); return; }
   const html = e.clipboardData.getData('text/html');
   const text = e.clipboardData.getData('text/plain');
   if (!html && !text) return;

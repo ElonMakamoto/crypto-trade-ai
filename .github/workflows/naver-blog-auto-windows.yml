@@ -76,8 +76,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete naver-blog-auto-latest --yes --cleanup-tag || true
-          gh release create naver-blog-auto-latest dist/NaverBlogAuto.exe \
-            --title "Naver Blog Auto for Windows" \
-            --target "$GITHUB_SHA" \
-            --notes "build: ${GITHUB_SHA::7} — 자동 빌드된 최신 버전입니다. NaverBlogAuto.exe를 받아 실행하세요."
+          # keep the release in place (never delete it): upload the new .exe first, then the version file the app
+          # reads, then the notes, so an app checking mid-build never sees a version whose .exe isn't there yet
+          NOTES="build: ${GITHUB_SHA::7} — 자동 빌드된 최신 버전입니다. NaverBlogAuto.exe를 받아 실행하세요."
+          if gh release view naver-blog-auto-latest >/dev/null 2>&1; then
+            gh release upload naver-blog-auto-latest dist/NaverBlogAuto.exe --clobber
+            gh release upload naver-blog-auto-latest version.txt --clobber
+            gh release edit naver-blog-auto-latest --notes "$NOTES"
+          else
+            gh release create naver-blog-auto-latest dist/NaverBlogAuto.exe version.txt \
+              --title "Naver Blog Auto for Windows" --target "$GITHUB_SHA" --notes "$NOTES"
+          fi
