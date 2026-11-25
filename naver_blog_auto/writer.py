@@ -336,28 +336,44 @@ def generate(aid, account, keyword=None):
     return {"keyword": keyword, "related": rel, "must": must, "notes": notes, "post": post, "seo": result}
 
 
+def _name_parts(text):
+    """Two-letter pieces of every word ("건강검진" -> 건강, 강검, 검진): close names share some."""
+    parts = set()
+    for word in re.findall(r"[가-힣A-Za-z0-9]{2,}", text or ""):
+        parts |= {word[i:i + 2] for i in range(len(word) - 1)}
+    return parts
+
+
 def pick_category(names, post, keyword, preferred=""):
-    """The blog category to post in: the one the user set, else the AI's best fit among the blog's categories."""
+    """The blog category to post in. The set name if the blog has it (exact, then contained, then the most shared
+    words), else the AI's best fit among the blog's own categories, else the most shared words with the post.
+    Returns (name, how)."""
     names = [n for n in names if n]
     if not names:
-        return None
+        return None, ""
     if preferred:
-        exact = [n for n in names if keywords.squash(n) == keywords.squash(preferred)]
-        loose = [n for n in names if keywords.squash(preferred) in keywords.squash(n)]
+        sq = keywords.squash(preferred)
+        exact = [n for n in names if keywords.squash(n) == sq]
+        loose = [n for n in names if sq in keywords.squash(n) or keywords.squash(n) in sq]
         if exact or loose:
-            return (exact or loose)[0]
+            return (exact or loose)[0], "설정한 카테고리"
+        parts = _name_parts(preferred)
+        scored = sorted(names, key=lambda n: -len(parts & _name_parts(n)))
+        if parts & _name_parts(scored[0]):
+            return scored[0], f"'{preferred}'과 가장 비슷한 카테고리"
     if len(names) == 1:
-        return names[0]
+        return names[0], "카테고리가 하나뿐"
     try:
         answer = gemini.generate_json(
             f"네이버 블로그 글을 어느 카테고리에 올릴지 골라 주세요.\n글 제목: {post['title']}\n키워드: {keyword}\n"
-            f"카테고리 목록: {json.dumps(names, ensure_ascii=False)}\n"
-            '목록에 있는 이름 그대로 하나만. JSON으로만: {"category": "..."}', temperature=0.2)
-        choice = str(answer.get("category", "")).strip()
+            f"원하는 분야: {preferred or '없음'}\n카테고리 목록: {json.dumps(names, ensure_ascii=False)}\n"
+            "글 내용과 가장 잘 맞는 것 (전체보기·공지 같은 것은 피함). 목록에 있는 이름 그대로 하나만.\n"
+            'JSON으로만: {"category": "..."}', temperature=0.2)
+        choice = str(answer.get("category", "")).strip() if isinstance(answer, dict) else ""
         if choice in names:
-            return choice
+            return choice, "AI가 고름"
     except gemini.GeminiError:
         pass
-    words = set(re.findall(r"[가-힣A-Za-z0-9]{2,}", post["title"] + " " + keyword))
-    scored = sorted(names, key=lambda n: -sum(1 for w in words if w in n or n in w))
-    return scored[0]
+    words = _name_parts(post["title"] + " " + keyword + " " + (preferred or ""))
+    scored = sorted(names, key=lambda n: -len(words & _name_parts(n)))
+    return scored[0], "제목과 가장 비슷한 카테고리"

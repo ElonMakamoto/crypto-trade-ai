@@ -91,6 +91,9 @@ ACCOUNT_DEFAULTS = {
     "CATEGORY": "",  # blog category to post in; empty = the AI picks the best fitting one
     "FORMAT": "story",  # "story" = the tidy news-story layout for every category, "seo" = the older SEO layout
     "PRESET": "",  # set once a known blog's preset was applied
+    "BLOG_CATEGORIES": "",  # the blog's own category names (read while publishing), separated by |
+    "SAFE_MODE": "1",  # 저품질 예방: quality gate, daily cap, spacing (see main.quality_gate)
+    "DAILY_MAX": "2",  # most posts a day for this account
     "V2": "",  # set once the account moved to the review style defaults
     "LENGTH": AUTO,
     "IMAGE_STYLE": AUTO,

@@ -542,9 +542,9 @@ def collect_story_photos(sources, dest_dir, base, want=12):
 
 def news_photo_sources(query, limit=10):
     """Article pages to take photos from: Naver News search for the query."""
-    import keywords
+    import naver
 
-    return [{"title": "", "uri": u} for u in keywords.naver_news_articles(query, limit)]
+    return [{"title": "", "uri": u} for u in naver.find_articles(query, limit)]
 
 
 def assign_story_photos(post, photos):
@@ -628,5 +628,14 @@ def make_story(post, keyword, account, out_dir, sources, seed=""):
                                 "place": place})
             if len(out) >= STORY_MAX:
                 break
-    print(f"   사진 {len(out)}장 (기사 사진 {len(photos)}장 중)")
+    # one original image made by the app (Naver rewards original images; copied photos alone look low-effort)
+    try:
+        hue = rnd.random()
+        style = account.get("IMAGE_STYLE") if account.get("IMAGE_STYLE") in STYLES else rnd.choice(STYLES)
+        items = [s["heading"] for s in post.get("sections", [])][:5]
+        card = summary_card(items, post.get("keyword") or keyword, style, rnd, out_dir / f"{base}_summary.png", hue)
+        out.append({"path": card, "caption": "", "place": "outro"})
+    except Exception as e:
+        print(f"   (정리 카드를 못 만들었어요: {e})")
+    print(f"   사진 {len(out)}장 (기사 사진 {len(photos)}장 중, 직접 만든 카드 포함)")
     return out

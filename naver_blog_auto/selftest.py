@@ -216,6 +216,23 @@ def run(report=None, browser=True):
         q = next(i for i, b in enumerate(sb) if b["type"] == "quote")
         assert sb[q - 1]["html"].endswith("<p><br></p><p><br></p>"), "2 empty lines before a subtitle"
         assert sb[q + 1]["html"].startswith("<p><br></p><p><br></p>"), "2 empty lines after a subtitle"
+        real_get = keywords._get
+
+        class Page:
+            ok = True
+
+            def __init__(self, text):
+                self.text = text
+
+        pages = {"bing.com": Page('<rss><item><link>http://www.bing.com/news/apiclick.aspx?ref=x&amp;url=https%3a%2f%2fwww.yna.co.kr%2fview%2fAKR1&amp;c=1</link></item></rss>'),
+                 "daum.net": Page('<a href="https://v.daum.net/v/20261125123045678">x</a>'),
+                 "naver.com": Page("")}
+        keywords._get = lambda url, **k: next(v for key, v in pages.items() if key in url)
+        try:
+            links = keywords.news_article_links("질병청", 5)
+        finally:
+            keywords._get = real_get
+        assert links == ["https://v.daum.net/v/20261125123045678", "https://www.yna.co.kr/view/AKR1"], links
         assert secure_store.decrypt(secure_store.encrypt("secret")) == "secret"
         assert timeslots.next_slot(timeslots.parse("09:30,19:30"), seed="a") is not None
         assert "Asia/Seoul" in str(timeslots.KST) or str(timeslots.KST) == "KST"

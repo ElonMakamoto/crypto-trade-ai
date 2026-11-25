@@ -357,9 +357,20 @@ class AccountPanel:
         pair("글쓴이 소개", ttk.Entry(tab, textvariable=self.vars["PERSONA"]), 2)
         r += 1
         pair("글 형식", choice_box(tab, "FORMAT", self.vars["FORMAT"]))
+        safe = ttk.Frame(tab)
+        ttk.Checkbutton(safe, text="🛡 저품질 예방", variable=self.vars["SAFE_MODE"], onvalue="1", offvalue="").pack(side="left")
+        ttk.Label(safe, text="  하루 최대").pack(side="left")
+        daily = ttk.Combobox(safe, values=["1", "2", "3"], state="readonly", width=3, textvariable=self.vars["DAILY_MAX"])
+        daily.pack(side="left", padx=4)
+        ttk.Label(safe, text="개").pack(side="left")
+        ttk.Label(tab, text="").grid(row=r, column=2)
+        safe.grid(row=r, column=2, columnspan=2, sticky="w", padx=10)
         r += 1
-        pair("카테고리", ttk.Entry(tab, textvariable=self.vars["CATEGORY"]))
-        ttk.Label(tab, text="비우면 AI가 글에 맞는 카테고리를 골라요", foreground="#666").grid(
+        cats = [c for c in config.load_account(self.aid).get("BLOG_CATEGORIES", "").split("|") if c]
+        self.category_box = ttk.Combobox(tab, textvariable=self.vars["CATEGORY"], values=[""] + cats)
+        pair("카테고리", self.category_box)
+        ttk.Label(tab, text="내 블로그 카테고리 목록에서 고르세요 (한 번 글을 올리면 목록이 채워져요). 비우면 AI가 골라 고정",
+                  foreground="#666", wraplength=330).grid(
             row=r, column=2, columnspan=2, sticky="w", padx=10)
         r += 1
         ttk.Label(tab, text="업로드 시간").grid(row=r, column=0, sticky="w", pady=3)
@@ -424,7 +435,9 @@ class AccountPanel:
     def reload_fields(self):
         """Pick up values the app changed by itself (blog id, the topic the AI chose)."""
         values = config.load_account(self.aid)
-        for key in ("BLOG_ID", "TOPIC_DETAIL"):
+        if hasattr(self, "category_box"):
+            self.category_box.config(values=[""] + [c for c in values.get("BLOG_CATEGORIES", "").split("|") if c])
+        for key in ("BLOG_ID", "TOPIC_DETAIL", "CATEGORY"):
             if self.vars[key].get() != values[key]:
                 self.vars[key].set(values[key])
         self.title_label.config(text=config.account_label(self.aid, values))
@@ -557,6 +570,10 @@ class AccountPanel:
             with self.app.round_lock:  # one account at a time
                 if not job:
                     print(f"\n===== {config.account_label(self.aid)} · {timeslots.now():%m/%d %H:%M} =====\n")
+                    wait = "" if dry_run else bot.pace_check(self.aid, config.load_account(self.aid))
+                    if wait:
+                        print(f"🛡 저품질 예방: 이번에는 쉬어요 — {wait}. (끄려면 ⚙ 글 설정 → 저품질 예방 해제)\n")
+                        return True
                     job = bot.make_post(self.aid)
                     self.app.root.after(0, self.reload_fields)
                     if dry_run:

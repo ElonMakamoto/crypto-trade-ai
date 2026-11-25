@@ -123,12 +123,14 @@ def research(keyword, story):
         "- 아직 공식 발표되지 않았거나 확인되지 않은 것\n"
         "기사마다 다르게 적힌 숫자는 다르다고 적으세요. 기사에 없는 것은 쓰지 마세요.")
     # the articles themselves (Naver News): real facts and quotes even when Google-search research isn't available
+    import naver
+
     articles = 0
-    for url in keywords.naver_news_articles(keyword, 8):
+    for url in naver.find_articles(keyword, 10):
         title, text = keywords.article_text(url)
         if len(text) < 200:
             continue
-        name = outlet(url) if "naver.com" not in url else ""
+        name = outlet(url) if "naver.com" not in url and "daum.net" not in url else ""
         notes += f"\n\n[기사 {articles + 1}] {title} {('— ' + name) if name else ''}\n{text}"
         articles += 1
         if articles >= 4:
@@ -229,6 +231,10 @@ def revise(post, keyword, notes, outlets, account, issues):
 QUOTE_RE = re.compile(r"[\"“”‘’']")
 HOOK_RE = re.compile(r"(이유|결국|결말|선택|근황|까닭|사연|진짜|속사정|한 말)")
 HYPE = [r"충격", r"경악", r"역대급", r"미쳤", r"소름", r"대박", r"헐", r"최악의", r"막장"]
+# words that get posts flagged as spam/ads or as illegal medical advertising
+RISKY = [r"카지노", r"토토", r"도박", r"바카라", r"대출", r"급전", r"성인", r"19금", r"비아그라", r"최저가", r"무료\s?증정",
+         r"할인\s?코드", r"구매\s?링크", r"클릭", r"카톡\s?문의", r"오픈\s?채팅", r"완치", r"100%\s?효과", r"부작용\s?없",
+         r"특효", r"기적의", r"즉효"]
 
 
 def body_lines(post):
@@ -257,7 +263,9 @@ def check(post, keyword):
     def add(ok, weight, name, detail, fix):
         checks.append({"ok": bool(ok), "weight": weight, "name": name, "detail": detail, "fix": fix})
 
-    add(25 <= len(title) <= 42, 10, "제목 25~40자", f"{len(title)}자", "제목을 25~40자로 맞추세요.")
+    add(25 <= len(title) <= 42, 10, "제목 25~40자", f"{len(title)}자",
+        f"제목이 {len(title)}자예요. 40자 이하로 줄이세요 (인용은 짧게, 설명 부분을 빼고 숫자와 '~한 이유'는 남기기)."
+        if len(title) > 42 else "제목을 25~40자로 늘리세요.")
     add(QUOTE_RE.search(title) and HOOK_RE.search(title[-14:]), 10, "제목: 직접 인용 + 궁금증 끝맺음", title,
         "제목을 [인물/프로그램] + \"직접 인용\" + 구체적인 숫자·사실 + '~한 이유'/'결국 ~' 끝맺음으로 바꾸세요.")
     add(re.search(r"\d", title), 5, "제목에 숫자·사실", title, "제목에 기사에 나온 숫자(인원, 나이, 기간 등)를 넣으세요.")
@@ -283,12 +291,40 @@ def check(post, keyword):
     add(5 <= len(post.get("tags", [])) <= 10, 5, "태그 5~10개", f"{len(post.get('tags', []))}개",
         "인물·프로그램·주제 태그를 5~10개로 맞추세요.")
     add(not hype, 5, "과장·자극 표현 없음", ", ".join(hype) or "없음", f"다음 표현을 빼세요: {', '.join(hype)}")
+    risky = sorted({m.group(0) for p in RISKY for m in re.finditer(p, title + "\n" + body)})
+    add(not risky, 10, "저품질 위험 단어 없음 (광고·도박·의료 과장)", ", ".join(risky) or "없음",
+        f"다음 단어는 네이버 저품질·광고 판정 위험이 있어요. 빼거나 다른 말로 바꾸세요: {', '.join(risky)}")
     total = sum(c["weight"] for c in checks)
     score = round(100 * sum(c["weight"] for c in checks if c["ok"]) / total)
     return {"score": score, "checks": checks, "issues": [c["fix"] for c in checks if not c["ok"]],
             "stats": {"chars": n_chars, "chars_with_spaces": seo.chars(body, spaces=True),
                       "keyword_count": seo.count(body, keyword), "headings": len(post.get("sections", [])),
                       "missing": []}}
+
+
+def shorten_title(title, limit=40):
+    """A title the AI kept too long: ask once for a shorter one, else drop words before the hook ending."""
+    try:
+        answer = gemini.generate_json(
+            f"이 네이버 블로그 제목을 {limit}자 이하로 줄여 주세요. 인물·직접 인용·숫자·'~한 이유' 같은 끝맺음은 "
+            f"살리고 나머지 설명을 빼세요.\n제목: {title}\n" + 'JSON으로만: {"title": "..."}', temperature=0.3)
+        short = re.sub(r"\s+", " ", str(answer.get("title", ""))).strip() if isinstance(answer, dict) else ""
+        if 15 <= len(short) <= limit + 2:
+            return short
+    except gemini.GeminiError:
+        pass
+    head, sep, tail = title.rpartition(", ")
+    if sep:  # drop words from the start of the part after the comma: the ending stays a natural phrase
+        words = tail.split(" ")
+        while len(head + sep + " ".join(words)) > limit and len(words) > 2:
+            words.pop(0)
+        title = head + sep + " ".join(words)
+    words = title.split(" ")
+    while len(" ".join(words)) > limit and len(words) > 5:
+        del words[-5]  # keep the last 4 words (the hook phrase: "결국 결별한 진짜 이유")
+    while len(" ".join(words)) > limit and len(words) > 3:
+        del words[-2]
+    return " ".join(words)
 
 
 # ---------------------------------------------------------------- the whole thing
@@ -324,6 +360,9 @@ def generate(aid, account, keyword=None):
         if result["score"] >= best[0]:
             best = (result["score"], post, result)
     _, post, result = best
+    if len(post.get("title", "")) > 42:
+        post["title"] = shorten_title(post["title"])
+        result = check(post, keyword)
     post["tags"] = list(dict.fromkeys(post["tags"] + account["_topic_info"]["tags"]))[:10]
     return {"keyword": post.get("keyword") or keyword, "related": {"naver": [], "google": [], "ranked": []},
             "must": [], "notes": notes, "post": post, "seo": result, "sources": sources, "outlets": outlets}

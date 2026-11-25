@@ -234,6 +234,7 @@ def article_text(url, limit=1800):
     title = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', page)
     body = None
     for pattern in (r'<article[^>]+id="dic_area"[^>]*>(.*?)</article>', r'<div[^>]+id="dic_area"[^>]*>(.*?)</div>',
+                    r'<div[^>]+class="article_view"[^>]*>(.*?)</section>',
                     r'<div[^>]+id="articeBody"[^>]*>(.*?)</div>', r'<article[^>]*>(.*?)</article>',
                     r'<div[^>]+(?:id|class)="[^"]*(?:article[_-]?(?:body|view|content)|news_?body)[^"]*"[^>]*>(.*?)</div>'):
         m = re.search(pattern, page, re.S | re.I)
@@ -247,3 +248,43 @@ def article_text(url, limit=1800):
     text = html.unescape(re.sub(r"<[^>]+>", " ", body))
     text = re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n", text)).strip()
     return (html.unescape(title.group(1)) if title else ""), text[:limit]
+
+
+def bing_news_links(query, limit=10):
+    """Original article links from Bing News (RSS, Korean market)."""
+    from urllib.parse import parse_qs, urlparse
+
+    r = _get("https://www.bing.com/news/search", params={"q": query, "format": "rss", "setlang": "ko", "cc": "KR",
+                                                          "mkt": "ko-KR"})
+    if not r:
+        return []
+    links = []
+    for raw in re.findall(r"<link>(.*?)</link>", r.text, re.S):
+        link = html.unescape(raw.strip())
+        if "apiclick" in link:
+            link = (parse_qs(urlparse(link).query).get("url") or [""])[0]
+        if link.startswith("http") and "bing.com" not in link:
+            links.append(link)
+    return list(OrderedDict.fromkeys(links))[:limit]
+
+
+def daum_news_links(query, limit=10):
+    """Daum News article pages (v.daum.net) for the query, newest first."""
+    r = _get("https://search.daum.net/search", params={"w": "news", "q": query, "sort": "recency"})
+    if not r:
+        return []
+    return list(OrderedDict.fromkeys(re.findall(r"https?://v\.daum\.net/v/\d{10,}", r.text)))[:limit]
+
+
+def news_article_links(query, limit=10):
+    """News article pages about the query from Naver News, Daum News and Bing News (deduplicated), with a count
+    per source in the log. Empty only if every source failed."""
+    found = {"네이버": naver_news_articles(query, limit), "다음": daum_news_links(query, limit),
+             "Bing": bing_news_links(query, limit)}
+    links = []
+    for i in range(limit):  # interleave so one blocked source doesn't leave only one outlet
+        for items in found.values():
+            if i < len(items):
+                links.append(items[i])
+    print("   기사 찾기: " + ", ".join(f"{k} {len(v)}개" for k, v in found.items()))
+    return list(OrderedDict.fromkeys(links))[:limit]
