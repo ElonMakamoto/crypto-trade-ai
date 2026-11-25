@@ -366,8 +366,11 @@ class AccountPanel:
         ttk.Label(tab, text="").grid(row=r, column=2)
         safe.grid(row=r, column=2, columnspan=2, sticky="w", padx=10)
         r += 1
-        pair("카테고리", ttk.Entry(tab, textvariable=self.vars["CATEGORY"]))
-        ttk.Label(tab, text="비우면 AI가 글에 맞는 카테고리를 골라요", foreground="#666").grid(
+        cats = [c for c in config.load_account(self.aid).get("BLOG_CATEGORIES", "").split("|") if c]
+        self.category_box = ttk.Combobox(tab, textvariable=self.vars["CATEGORY"], values=[""] + cats)
+        pair("카테고리", self.category_box)
+        ttk.Label(tab, text="내 블로그 카테고리 목록에서 고르세요 (한 번 글을 올리면 목록이 채워져요). 비우면 AI가 골라 고정",
+                  foreground="#666", wraplength=330).grid(
             row=r, column=2, columnspan=2, sticky="w", padx=10)
         r += 1
         ttk.Label(tab, text="업로드 시간").grid(row=r, column=0, sticky="w", pady=3)
@@ -432,7 +435,9 @@ class AccountPanel:
     def reload_fields(self):
         """Pick up values the app changed by itself (blog id, the topic the AI chose)."""
         values = config.load_account(self.aid)
-        for key in ("BLOG_ID", "TOPIC_DETAIL"):
+        if hasattr(self, "category_box"):
+            self.category_box.config(values=[""] + [c for c in values.get("BLOG_CATEGORIES", "").split("|") if c])
+        for key in ("BLOG_ID", "TOPIC_DETAIL", "CATEGORY"):
             if self.vars[key].get() != values[key]:
                 self.vars[key].set(values[key])
         self.title_label.config(text=config.account_label(self.aid, values))

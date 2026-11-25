@@ -7,6 +7,7 @@ Command line (for testing):
 """
 import argparse
 import json
+import re
 import time
 from datetime import datetime
 
@@ -124,7 +125,19 @@ def publish_job(job):
     preferred = config.category_map().get(job.get("topic") or account.get("TOPIC"), "") or account.get("CATEGORY", "")
 
     def pick(names):
-        return writer.pick_category(names, job["post"], job["keyword"], preferred)
+        names = [re.sub(r"\s*\(\d+\)$", "", n).strip() for n in names]  # "연예뉴스 (12)" -> "연예뉴스"
+        names = [n for n in dict.fromkeys(names) if n and n not in ("전체보기", "카테고리")]
+        print("   블로그 카테고리: " + ", ".join(names))
+        config.save_account(aid, {"BLOG_CATEGORIES": "|".join(names)})
+        choice, how = writer.pick_category(names, job["post"], job["keyword"], preferred)
+        if choice:
+            print(f"   📁 {choice} ({how})")
+            if not account.get("CATEGORY") and how in ("AI가 고름", "제목과 가장 비슷한 카테고리") \
+                    and not config.category_map().get(job.get("topic") or account.get("TOPIC")):
+                # keep posting this account's topic into the same category (Naver rewards topic consistency)
+                config.save_account(aid, {"CATEGORY": choice})
+                print("   (이 카테고리로 계속 올려요. 바꾸려면 ⚙ 글 설정 → 카테고리)")
+        return choice
 
     result = naver.post(aid, job["post"]["title"], job["blocks"], job["post"]["tags"], publish=publish,
                         shot_dir=Path(job["dir"]), pick_category=pick)

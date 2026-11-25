@@ -574,7 +574,7 @@ class Editor:
                 if name == choice:
                     options.nth(i).click(timeout=3000)
                     self.page.wait_for_timeout(400)
-                    print(f"   📁 카테고리: {choice}")
+                    print(f"   📁 카테고리 선택됨: {choice}")
                     return choice
         except Exception as e:
             print(f"   ⚠ 카테고리를 고르지 못했어요 ({str(e).splitlines()[0][:80]}) — 기본 카테고리로 올려요")
