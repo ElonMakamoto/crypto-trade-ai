@@ -117,6 +117,38 @@ def story_browser_test(tmp):
     return f"story ok ({', '.join(sorted(methods))}; 4 quote subtitles, no link card, {n_images} images)"
 
 
+def image_fallback_test(tmp):
+    """Photos still go up when the photo button and file input don't work (paste, then drop)."""
+    import config
+    import naver
+
+    photo = tmp / "fallback.jpg"
+    __import__("PIL.Image", fromlist=["Image"]).new("RGB", (800, 500), (120, 140, 160)).save(photo)
+    results = []
+    with naver.Session("selftest", headless=True) as s:
+        for broken in (["_upload_chooser"], ["_upload_chooser", "_upload_input"],
+                       ["_upload_chooser", "_upload_input", "paste"]):
+            s.page.goto((config.BASE_DIR / "tests" / "mock_editor.html").resolve().as_uri())
+            editor = naver.Editor(s.page)
+            editor.wait_ready(timeout=20)
+            editor.dismiss_popups()
+            editor.start_body()
+
+            def fail(*a, **k):
+                raise naver.EditorError("disabled for the test")
+
+            for name in broken:
+                if name == "paste":
+                    real = editor._file_js
+                    editor._file_js = lambda p, ev, real=real: fail() if ev == "paste" else real(p, ev)
+                else:
+                    setattr(editor, name, fail)
+            results.append(editor.add_image(photo))
+            assert editor.image_count() == 1
+    assert results == ["파일 입력칸", "붙여넣기", "끌어놓기"], results
+    return "image fallbacks ok (" + ", ".join(results) + ")"
+
+
 def run(report=None, browser=True):
     lines = []
     try:
@@ -192,6 +224,7 @@ def run(report=None, browser=True):
         if browser:
             lines.append(browser_test(blocks, tmp))
             lines.append(story_browser_test(tmp))
+            lines.append(image_fallback_test(tmp))
         text = "OK\n" + "\n".join(lines)
         code = 0
     except Exception:

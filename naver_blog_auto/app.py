@@ -5,9 +5,11 @@ Korean SEO posts with Gemini (free Google AI Studio key) and publishes them at t
 """
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import traceback
 import webbrowser
@@ -647,6 +649,7 @@ class App:
     def __init__(self, root, autostart=False, resume=()):
         self.root = root
         self.round_lock = threading.Lock()
+        self.update_lock = threading.Lock()
         self.panels = {}
         root.title(APP_NAME)
         root.geometry("1480x900")
@@ -657,6 +660,7 @@ class App:
         sys.stdout = sys.stderr = LogWriter(self)
         self._poll()
         self._tick()
+        self.report_update()
         self._schedule_update_check()
         root.after(60_000, self._schedule_rank_check)
         start = [a for a, p in self.panels.items() if config.load_account(a).get("BLOG_ID")] if autostart else resume
@@ -760,55 +764,107 @@ class App:
     def manual_update(self):
         threading.Thread(target=self.check_update, kwargs={"manual": True}, daemon=True).start()
 
+    def latest_version(self):
+        """The newest build's version: the release's version.txt (no API limits), else the release notes.
+        Returns (version or None, error message or "")."""
+        try:
+            r = requests.get(f"https://github.com/{REPO}/releases/download/{RELEASE_TAG}/version.txt", timeout=20,
+                             headers={"Cache-Control": "no-cache"})
+            if r.ok and 4 <= len(r.text.strip()) <= 40:
+                return r.text.strip(), ""
+            r = requests.get(f"https://api.github.com/repos/{REPO}/releases/tags/{RELEASE_TAG}", timeout=20)
+            if not r.ok:
+                return None, f"GitHub 응답 {r.status_code}"
+            body = r.json().get("body") or ""
+            m = re.match(r"build:\s*([0-9a-f]{7})", body)
+            return (m.group(1), "") if m else (None, "버전 정보를 찾지 못했어요")
+        except (requests.RequestException, ValueError) as e:
+            return None, f"연결 실패 ({type(e).__name__})"
+
     def check_update(self, manual=False):
         """Look for a newer build on GitHub; the packaged app installs it by itself and restarts."""
         def tell(msg):
             if manual:
                 self.root.after(0, lambda: messagebox.showinfo(APP_NAME, msg))
 
-        current = app_version()
-        if current == "dev":
-            return tell("개발 버전(소스 실행)이라 자동 업데이트는 .exe에서만 동작해요.")
+        if not self.update_lock.acquire(blocking=False):
+            return tell("업데이트를 이미 받고 있어요. 잠시만 기다려 주세요.")
         try:
-            r = requests.get(f"https://api.github.com/repos/{REPO}/releases/tags/{RELEASE_TAG}", timeout=15)
-            body = (r.json().get("body") or "") if r.ok else ""
-        except (requests.RequestException, ValueError):
-            return tell("GitHub에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.")
-        if not body.startswith("build:") or current in body:
-            return tell(f"최신 버전이에요 (버전 {current}).")
-        if manual:
-            print("⬆ 새 버전을 찾았어요. 받아서 다시 시작합니다 (올리는 중인 글이 있으면 끝난 뒤에).\n")
-        if config.FROZEN and sys.platform == "win32":
-            try:
-                self.install_update()
-                return
-            except Exception as e:
-                print(f"자동 업데이트 실패: {e}\n")
-        self.root.after(0, lambda: self.update_btn.pack(side="right", padx=8))
-        print("⬆ 새 버전이 있습니다. 오른쪽 위 '새 버전 받기'를 누르세요.\n")
+            current = app_version()
+            if current == "dev":
+                return tell("개발 버전(소스 실행)이라 자동 업데이트는 .exe에서만 동작해요.")
+            latest, error = self.latest_version()
+            if not latest:
+                print(f"(업데이트 확인 실패: {error})\n")
+                return tell(f"업데이트를 확인하지 못했어요: {error}\n잠시 뒤 다시 눌러 주세요.")
+            if latest == current:
+                return tell(f"최신 버전이에요 (버전 {current}).")
+            print(f"⬆ 새 버전 {latest}을(를) 받아요 (지금 {current}). 올리는 중인 글이 있으면 끝난 뒤에 바꿉니다.\n")
+            if config.FROZEN and sys.platform == "win32":
+                try:
+                    self.install_update(latest)
+                    return
+                except Exception as e:
+                    print(f"❌ 자동 업데이트 실패: {e}\n")
+                    tell(f"자동 업데이트에 실패했어요: {e}\n오른쪽 위 '새 버전 받기'로 직접 받아 주세요.")
+            self.root.after(0, lambda: self.update_btn.pack(side="right", padx=8))
+        finally:
+            self.update_lock.release()
 
-    def install_update(self):
+    def download_new(self, new):
+        """Download the new .exe completely (3 tries); checks the size against what the server said."""
+        last = None
+        for attempt in range(3):
+            try:
+                with requests.get(DOWNLOAD_URL, stream=True, timeout=120, headers={"Cache-Control": "no-cache"}) as r:
+                    r.raise_for_status()
+                    expected = int(r.headers.get("Content-Length") or 0)
+                    with open(new, "wb") as f:
+                        for chunk in r.iter_content(1 << 20):
+                            f.write(chunk)
+                size = new.stat().st_size
+                if size >= 5_000_000 and (not expected or size == expected):
+                    return
+                last = f"받은 파일 크기가 맞지 않아요 ({size:,} / {expected:,} bytes)"
+            except (requests.RequestException, OSError) as e:
+                last = str(e)
+            print(f"   다시 받는 중... ({attempt + 1}/3)\n")
+            time.sleep(5)
+        new.unlink(missing_ok=True)
+        raise RuntimeError(last or "다운로드 실패")
+
+    def install_update(self, version):
         exe = Path(sys.executable)
         new = exe.with_name(exe.name + ".new")
-        print("⬆ 새 버전을 받는 중...\n")
-        with requests.get(DOWNLOAD_URL, stream=True, timeout=60) as r:
-            r.raise_for_status()
-            with open(new, "wb") as f:
-                for chunk in r.iter_content(1 << 20):
-                    f.write(chunk)
-        if new.stat().st_size < 5_000_000:
-            new.unlink()
-            raise RuntimeError("받은 파일이 올바르지 않습니다")
+        self.download_new(new)
+        log = config.DATA_DIR / "update.log"
         with self.round_lock:  # never cut off a post halfway
             running = ",".join(a for a, p in self.panels.items() if p.auto_on())
             pid = os.getppid()  # the onefile bootloader holds the .exe open until we exit
             bat = exe.with_name("NaverBlogAuto-update.bat")
+            args = "--resume-auto=" + running if running else ""
+            # wait for the old app to exit, then retry the swap for up to 2 minutes (antivirus scans and
+            # slow exits keep the .exe locked for a while); always restart, and write down what happened
             bat.write_text(
                 "@echo off\r\n"
                 ":wait\r\n"
-                f'tasklist /FI "PID eq {pid}" | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n'
-                f'move /Y "{new}" "{exe}" >nul\r\n'
-                f'start "" "{exe}" {"--resume-auto=" + running if running else ""}\r\n'
+                f'tasklist /FI "PID eq {pid}" | find " {pid} " >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n'
+                f'tasklist /FI "PID eq {os.getpid()}" | find " {os.getpid()} " >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n'
+                "set tries=0\r\n"
+                ":swap\r\n"
+                f'move /Y "{new}" "{exe}" >nul 2>&1 && goto ok\r\n'
+                "set /a tries+=1\r\n"
+                "if %tries% geq 120 goto fail\r\n"
+                "timeout /t 1 /nobreak >nul\r\n"
+                "goto swap\r\n"
+                ":ok\r\n"
+                f'echo ok {version}> "{log}"\r\n'
+                f'start "" "{exe}" {args}\r\n'
+                "goto end\r\n"
+                ":fail\r\n"
+                f'echo fail {version}> "{log}"\r\n'
+                f'start "" "{exe}" {args}\r\n'
+                ":end\r\n"
                 'del "%~f0"\r\n',
                 encoding="mbcs",
             )
@@ -818,6 +874,21 @@ class App:
             for panel in self.panels.values():
                 panel.stop_event.set()
             self.root.after(500, self.root.destroy)
+
+    def report_update(self):
+        """After a restart: say whether the last update worked."""
+        log = config.DATA_DIR / "update.log"
+        try:
+            status, version = log.read_text(encoding="mbcs" if sys.platform == "win32" else "utf-8").split()[:2]
+        except (OSError, ValueError):
+            return
+        log.unlink(missing_ok=True)
+        if status == "ok" and app_version() == version:
+            print(f"✅ 업데이트 완료: 버전 {version}\n")
+        else:
+            print("❌ 지난 업데이트에서 파일을 바꾸지 못했어요 (백신 프로그램이 막았을 수 있어요). "
+                  "오른쪽 위 '새 버전 받기'로 직접 받아 주세요.\n")
+            self.root.after(0, lambda: self.update_btn.pack(side="right", padx=8))
 
     def _schedule_update_check(self):
         threading.Thread(target=self.check_update, daemon=True).start()
