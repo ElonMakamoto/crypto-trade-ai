@@ -23,6 +23,7 @@ import config
 import gemini
 import main as bot
 import naver
+import theme
 import timeslots
 
 APP_NAME = "Naver Blog Auto"
@@ -131,7 +132,7 @@ class CommonSettings:
             row=row, column=1, sticky="w", pady=4)
         row += 1
         ttk.Label(f, text="무료 Google 키로 글을 씁니다. 사진은 AI 그림이 안 되는 키면 무료 사진(Pixabay/Pexels 키) 또는\n"
-                          "디자인 카드로 자동으로 바뀝니다.", foreground="#666").grid(row=row, column=0, columnspan=3,
+                          "디자인 카드로 자동으로 바뀝니다.", style="Sub.TLabel").grid(row=row, column=0, columnspan=3,
                                                                           sticky="w", pady=(10, 0))
         row += 1
         buttons = ttk.Frame(f)
@@ -176,7 +177,7 @@ class CategoryMapWindow:
         f = ttk.Frame(top, padding=14)
         f.pack(fill="both", expand=True)
         ttk.Label(f, text="네이버 블로그에 만들어 둔 카테고리 이름을 그대로 적으세요. 비우면 AI가 블로그 카테고리 중에서 골라요.",
-                  foreground="#666").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+                  style="Sub.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
         current = config.category_map()
         self.vars = {}
         row = 1
@@ -197,6 +198,65 @@ class CategoryMapWindow:
         self.top.destroy()
 
 
+class UpdateDialog:
+    """Small window for the ⬆ 업데이트 button: what's happening, a progress bar, and 다시 설치 / 닫기."""
+
+    def __init__(self, app):
+        self.app = app
+        top = self.top = tk.Toplevel(app.root)
+        top.title("업데이트")
+        top.transient(app.root)
+        top.resizable(False, False)
+        f = ttk.Frame(top, padding=20)
+        f.pack(fill="both", expand=True)
+        ttk.Label(f, text="⬆ 업데이트", style="Account.TLabel").pack(anchor="w")
+        self.text = ttk.Label(f, text="새 버전이 있는지 확인하는 중...", wraplength=380)
+        self.text.pack(anchor="w", pady=(10, 8))
+        self.bar = ttk.Progressbar(f, length=380, mode="indeterminate")
+        self.bar.pack(fill="x")
+        self.bar.start(12)
+        self.buttons = ttk.Frame(f)
+        self.buttons.pack(fill="x", pady=(14, 0))
+        ttk.Button(self.buttons, text="닫기", command=top.destroy).pack(side="right")
+        self.reinstall = ttk.Button(self.buttons, text="다시 설치", command=self.force)
+
+    def alive(self):
+        try:
+            return bool(self.top.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def _ui(self, fn):
+        if self.alive():
+            self.app.root.after(0, fn)
+
+    def say(self, text, done=False, reinstall=False):
+        def apply():
+            self.text.config(text=text)
+            if done:
+                self.bar.stop()
+                self.bar.config(mode="determinate", value=100 if "✅" in text else 0)
+            if reinstall:
+                self.reinstall.pack(side="right", padx=6)
+        self._ui(apply)
+
+    def progress(self, done, total):
+        def apply():
+            if str(self.bar.cget("mode")) != "determinate":
+                self.bar.stop()
+                self.bar.config(mode="determinate", maximum=100)
+            self.bar.config(value=100 * done / total)
+            self.text.config(text=f"⬇ 받는 중... {done / 1e6:.0f} / {total / 1e6:.0f} MB")
+        self._ui(apply)
+
+    def force(self):
+        self.reinstall.pack_forget()
+        self.say("⬇ 다시 받는 중...")
+        self.bar.config(mode="indeterminate")
+        self.bar.start(12)
+        threading.Thread(target=self.app.check_update, kwargs={"manual": True, "force": True}, daemon=True).start()
+
+
 # ---------------------------------------------------------------- history / search ranks
 class HistoryWindow:
     COLUMNS = (("time", "날짜", 120), ("keyword", "키워드", 170), ("title", "제목", 330), ("score", "SEO", 50),
@@ -213,7 +273,7 @@ class HistoryWindow:
         ttk.Button(bar, text="🔗 글 열기", command=self.open_post).pack(side="left", padx=6)
         ttk.Button(bar, text="👁 미리보기 열기", command=self.open_preview).pack(side="left")
         ttk.Label(bar, text="  네이버 블로그탭 순위(1페이지 안)와 통합검색 노출을 6시간마다 자동으로 확인해요.",
-                  foreground="#666").pack(side="left")
+                  style="Sub.TLabel").pack(side="left")
         self.tree = ttk.Treeview(top, columns=[c[0] for c in self.COLUMNS], show="headings")
         for key, label, width in self.COLUMNS:
             self.tree.heading(key, text=label)
@@ -277,11 +337,14 @@ class AccountPanel:
                      if k not in ("KEYWORDS", "MEMO", "POST_TIMES")}
         self.auto_kw = tk.BooleanVar(value=values["AUTO_KEYWORDS"] == "1")
 
-        frame = self.frame = ttk.Frame(parent, padding=10, relief="groove")
+        frame = self.frame = ttk.Frame(parent, padding=14)
         head = ttk.Frame(frame)
         head.pack(fill="x")
         self.title_label = ttk.Label(head, text=config.account_label(aid, values), style="Account.TLabel")
         self.title_label.pack(side="left")
+        if aid != "a":
+            ttk.Button(head, text="🗑 계정 빼기", command=lambda: self.app.remove_account(self.aid)).pack(side="right",
+                                                                                                padx=(6, 0))
         ttk.Button(head, text="로그인 확인", command=self.check_login).pack(side="right")
         ttk.Button(head, text="🔑 네이버 로그인", style="Accent.TButton", command=self.login).pack(side="right", padx=6)
         self.login_label = ttk.Label(frame, text="", style="Status.TLabel")
@@ -294,7 +357,7 @@ class AccountPanel:
         self.topic_box.pack(side="left", padx=6)
         self.topic_box.bind("<<ComboboxSelected>>", lambda e: self.save(quiet=True), add="+")
         ttk.Label(pick_row, text="기사형: 짧은 줄·인용구 소제목·사진",
-                  foreground="#666").pack(side="left")
+                  style="Sub.TLabel").pack(side="left")
         actions = ttk.Frame(frame)
         actions.pack(fill="x", pady=(0, 4))
         self.auto_btn = ttk.Button(actions, text="▶ 자동 시작", style="Accent.TButton", command=self.toggle_auto)
@@ -312,7 +375,7 @@ class AccountPanel:
         more.pack(fill="x", pady=(0, 6))
         ttk.Button(more, text="📈 올린 글·검색 노출", command=lambda: HistoryWindow(self)).pack(side="left")
         ttk.Button(more, text="📂 결과 폴더", command=self.open_output).pack(side="left", padx=4)
-        self.status_label = ttk.Label(more, text="", foreground="#0a7d33")
+        self.status_label = ttk.Label(more, text="", style="Good.TLabel")
         self.status_label.pack(side="left", padx=8)
 
         self.tabs = ttk.Notebook(frame)
@@ -322,6 +385,7 @@ class AccountPanel:
         log_tab = ttk.Frame(self.tabs, padding=4)
         self.log = scrolledtext.ScrolledText(log_tab, height=16, state="disabled", font=("Consolas", 9), wrap="word")
         self.log.pack(fill="both", expand=True)
+        self.app.register_text(self.log, mono=True)
         self.tabs.add(log_tab, text="📜 진행 기록")
         self.refresh_login()
         self.update_status()
@@ -370,7 +434,7 @@ class AccountPanel:
         self.category_box = ttk.Combobox(tab, textvariable=self.vars["CATEGORY"], values=[""] + cats)
         pair("카테고리", self.category_box)
         ttk.Label(tab, text="내 블로그 카테고리 목록에서 고르세요 (한 번 글을 올리면 목록이 채워져요). 비우면 AI가 골라 고정",
-                  foreground="#666", wraplength=330).grid(
+                  style="Sub.TLabel", wraplength=330).grid(
             row=r, column=2, columnspan=2, sticky="w", padx=10)
         r += 1
         ttk.Label(tab, text="업로드 시간").grid(row=r, column=0, sticky="w", pady=3)
@@ -383,14 +447,14 @@ class AccountPanel:
             box.set(saved[i] if i < len(saved) else timeslots.OFF)
             box.pack(side="left", padx=(0, 6))
             self.time_boxes.append(box)
-        ttk.Label(times, text="한국시간 · 매일 ±40분 랜덤", foreground="#666").pack(side="left")
+        ttk.Label(times, text="한국시간 · 매일 ±40분 랜덤", style="Sub.TLabel").pack(side="left")
         r += 1
         bottom = ttk.Frame(tab)
         bottom.grid(row=r, column=0, columnspan=4, sticky="we", pady=(8, 0))
         ttk.Button(bottom, text="💾 저장", style="Accent.TButton", command=self.save).pack(side="left")
         ttk.Button(bottom, text="🤖 전부 자동으로", command=self.all_auto).pack(side="left", padx=6)
         ttk.Label(bottom, text="'자동'은 AI가 키워드마다 알아서 정해요. 한 계정은 한 주제로 꾸준히 쓰는 게 검색에 유리해요.",
-                  foreground="#666", wraplength=420).pack(side="left", padx=6)
+                  style="Sub.TLabel", wraplength=420).pack(side="left", padx=6)
 
     def _build_keywords(self, tabs, values):
         tab = ttk.Frame(tabs, padding=8)
@@ -398,6 +462,7 @@ class AccountPanel:
         ttk.Label(tab, text="키워드 목록 — 한 줄에 하나, 위에서부터 씁니다 (이미 쓴 키워드는 건너뜀)").pack(anchor="w")
         self.kw_text = tk.Text(tab, height=7, wrap="none", font=("Malgun Gothic", 10))
         self.kw_text.insert("1.0", values["KEYWORDS"])
+        self.app.register_text(self.kw_text)
         self.kw_text.pack(fill="x", pady=(2, 4))
         ttk.Checkbutton(tab, text="키워드가 없으면 AI가 알아서 고르기 (네이버·구글 자동완성의 실제 검색어 중 롱테일)",
                         variable=self.auto_kw).pack(anchor="w")
@@ -405,6 +470,7 @@ class AccountPanel:
             anchor="w", pady=(8, 0))
         self.memo_text = tk.Text(tab, height=4, wrap="word", font=("Malgun Gothic", 10))
         self.memo_text.insert("1.0", values["MEMO"])
+        self.app.register_text(self.memo_text)
         self.memo_text.pack(fill="x", pady=(2, 4))
         ttk.Button(tab, text="💾 저장", style="Accent.TButton", command=self.save).pack(anchor="w")
 
@@ -428,6 +494,7 @@ class AccountPanel:
     def save(self, quiet=False):
         config.save_account(self.aid, self.values())
         self.title_label.config(text=config.account_label(self.aid))
+        self.app.update_tab(self.aid)
         self.update_status()
         if not quiet:
             self.log_q.put("💾 설정을 저장했어요.\n")
@@ -441,6 +508,7 @@ class AccountPanel:
             if self.vars[key].get() != values[key]:
                 self.vars[key].set(values[key])
         self.title_label.config(text=config.account_label(self.aid, values))
+        self.app.update_tab(self.aid)
         self.refresh_login()
 
     def refresh_login(self, text=None, colour=None):
@@ -448,7 +516,7 @@ class AccountPanel:
         if text is None:
             text, colour = ((f"🟢 로그인됨 · blog.naver.com/{blog}", "#0a7d33") if blog else
                             ("⚪ 아직 로그인 전 — 🔑 네이버 로그인을 눌러 한 번만 로그인하세요", "#666"))
-        self.login_label.config(text=text, foreground=colour)
+        self.login_label.config(text=text, foreground=theme.colour(self.app.theme_name, colour))
 
     def open_output(self):
         path = config.output_dir(self.aid)
@@ -667,7 +735,10 @@ class App:
         self.root = root
         self.round_lock = threading.Lock()
         self.update_lock = threading.Lock()
+        self.update_dialog = None
         self.panels = {}
+        self.text_widgets = []
+        self.theme_name = config.load_common().get("THEME", "white")
         root.title(APP_NAME)
         root.geometry("1480x900")
         root.minsize(1200, 700)
@@ -692,34 +763,88 @@ class App:
                           "3. 👁 미리보기로 글을 확인하고 ▶ 자동 시작을 누르면 끝!"))
 
     def _style(self):
-        style = ttk.Style()
-        if "vista" in style.theme_names():
-            style.theme_use("vista")
-        family = "Malgun Gothic" if sys.platform == "win32" else "TkDefaultFont"
-        style.configure(".", font=(family, 10))
-        style.configure("Title.TLabel", font=(family, 18, "bold"))
-        style.configure("Account.TLabel", font=(family, 15, "bold"))
-        style.configure("Status.TLabel", font=(family, 10, "bold"))
-        style.configure("Accent.TButton", font=(family, 10, "bold"), padding=5)
+        self.pal = theme.apply(self.root, self.theme_name)
+
+    def register_text(self, widget, mono=False):
+        self.text_widgets.append((widget, mono))
+        theme.text_colours(widget, self.pal, mono)
+
+    def set_theme(self, name):
+        self.theme_name = name
+        config.save_common({"THEME": name})
+        self._style()
+        for widget, mono in self.text_widgets:
+            try:
+                theme.text_colours(widget, self.pal, mono)
+            except tk.TclError:
+                pass
+        for key, button in self.swatches.items():
+            button.configure(style="SwatchOn.TButton" if key == name else "Swatch.TButton")
+        for panel in self.panels.values():
+            panel.refresh_login()
 
     def _build(self):
-        outer = ttk.Frame(self.root, padding=12)
+        outer = ttk.Frame(self.root, padding=(16, 12), style="App.TFrame")
         outer.pack(fill="both", expand=True)
-        head = ttk.Frame(outer)
+        head = ttk.Frame(outer, style="App.TFrame")
         head.pack(fill="x", pady=(0, 10))
         ttk.Label(head, text="📝 " + APP_NAME, style="Title.TLabel").pack(side="left")
-        ttk.Label(head, text="  네이버 블로그 2계정 · 한국어 SEO 글 + 사진 4~6장 자동 발행", foreground="#666").pack(side="left")
-        ttk.Button(head, text="⚙ 공통 설정", style="Accent.TButton", command=lambda: CommonSettings(self)).pack(side="right")
-        ttk.Label(head, text=f"버전 {app_version()}   ").pack(side="right")
-        ttk.Button(head, text="🔄 업데이트 확인", command=self.manual_update).pack(side="right", padx=(0, 6))
-        self.update_btn = ttk.Button(head, text="새 버전 받기", command=lambda: webbrowser.open(DOWNLOAD_URL))
-        body = ttk.Frame(outer)
-        body.pack(fill="both", expand=True)
-        body.rowconfigure(0, weight=1)
-        for i, aid in enumerate(config.ACCOUNTS):
-            body.columnconfigure(i, weight=1, uniform="acc")
-            panel = self.panels[aid] = AccountPanel(self, body, aid)
-            panel.frame.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else 8, 0))
+        ttk.Label(head, text="   네이버 블로그 여러 계정 · 기사형 글 + 사진 자동 발행", style="AppSub.TLabel").pack(side="left")
+        ttk.Button(head, text="⚙ 공통 설정", style="Head.TButton", command=lambda: CommonSettings(self)).pack(side="right")
+        ttk.Button(head, text="➕ 계정 추가", style="Head.TButton", command=self.add_account).pack(side="right", padx=6)
+        self.update_now_btn = ttk.Button(head, text=f"⬆ 업데이트  ·  {app_version()}", style="Accent.TButton",
+                                         command=self.manual_update)
+        self.update_now_btn.pack(side="right", padx=6)
+        swatch_box = ttk.Frame(head, style="App.TFrame")
+        swatch_box.pack(side="right", padx=10)
+        self.swatches = {}
+        for key, pal in theme.THEMES.items():
+            b = ttk.Button(swatch_box, text=pal["label"], command=lambda k=key: self.set_theme(k),
+                           style="SwatchOn.TButton" if key == self.theme_name else "Swatch.TButton")
+            b.pack(side="left", padx=1)
+            self.swatches[key] = b
+        self.update_btn = ttk.Button(head, text="새 버전 직접 받기", command=lambda: webbrowser.open(DOWNLOAD_URL))
+        self.account_tabs = ttk.Notebook(outer, style="Accounts.TNotebook")
+        self.account_tabs.pack(fill="both", expand=True)
+        for aid in config.ACCOUNTS:
+            self._add_panel(aid)
+
+    def _add_panel(self, aid):
+        panel = self.panels[aid] = AccountPanel(self, self.account_tabs, aid)
+        self.account_tabs.add(panel.frame, text=self._tab_text(aid))
+        return panel
+
+    def _tab_text(self, aid):
+        return f"  {config.account_label(aid)}  "
+
+    def update_tab(self, aid):
+        panel = self.panels.get(aid)
+        if panel and hasattr(self, "account_tabs"):
+            try:
+                self.account_tabs.tab(panel.frame, text=self._tab_text(aid))
+            except tk.TclError:
+                pass
+
+    def add_account(self):
+        aid = config.add_account()
+        if not aid:
+            return messagebox.showinfo(APP_NAME, "계정은 6개까지 넣을 수 있어요.")
+        panel = self._add_panel(aid)
+        self.account_tabs.select(panel.frame)
+        panel.log_q.put(f"➕ {config.ACCOUNTS[aid]}를 추가했어요. 🔑 네이버 로그인을 눌러 블로그에 로그인하세요.\n")
+
+    def remove_account(self, aid):
+        panel = self.panels.get(aid)
+        if not panel:
+            return
+        if not messagebox.askyesno(APP_NAME, f"{config.account_label(aid)}을(를) 목록에서 뺄까요?\n"
+                                             "(로그인·설정·기록은 지워지지 않아서 다시 추가하면 그대로 돌아와요)"):
+            return
+        panel.stop_event.set()
+        self.account_tabs.forget(panel.frame)
+        panel.frame.destroy()
+        del self.panels[aid]
+        config.remove_account(aid)
 
     # ----- Windows startup
     def startup_enabled(self):
@@ -779,6 +904,10 @@ class App:
 
     # ----- self-update (same as the Instagram app)
     def manual_update(self):
+        if self.update_dialog and self.update_dialog.alive():
+            self.update_dialog.top.lift()
+            return
+        self.update_dialog = UpdateDialog(self)
         threading.Thread(target=self.check_update, kwargs={"manual": True}, daemon=True).start()
 
     def latest_version(self):
@@ -798,11 +927,14 @@ class App:
         except (requests.RequestException, ValueError) as e:
             return None, f"연결 실패 ({type(e).__name__})"
 
-    def check_update(self, manual=False):
-        """Look for a newer build on GitHub; the packaged app installs it by itself and restarts."""
-        def tell(msg):
-            if manual:
-                self.root.after(0, lambda: messagebox.showinfo(APP_NAME, msg))
+    def check_update(self, manual=False, force=False):
+        """Look for a newer build on GitHub; the packaged app installs it by itself and restarts.
+        manual: show progress in the update window; force: install even if the version is the same."""
+        dialog = self.update_dialog if manual else None
+
+        def tell(msg, reinstall=False):
+            if dialog:
+                dialog.say(msg, done=True, reinstall=reinstall)
 
         if not self.update_lock.acquire(blocking=False):
             return tell("업데이트를 이미 받고 있어요. 잠시만 기다려 주세요.")
@@ -814,12 +946,14 @@ class App:
             if not latest:
                 print(f"(업데이트 확인 실패: {error})\n")
                 return tell(f"업데이트를 확인하지 못했어요: {error}\n잠시 뒤 다시 눌러 주세요.")
-            if latest == current:
-                return tell(f"최신 버전이에요 (버전 {current}).")
+            if dialog:
+                dialog.say(f"최신 버전: {latest}  ·  지금: {current}")
+            if latest == current and not force:
+                return tell(f"✅ 최신 버전이에요 (버전 {current}).", reinstall=config.FROZEN)
             print(f"⬆ 새 버전 {latest}을(를) 받아요 (지금 {current}). 올리는 중인 글이 있으면 끝난 뒤에 바꿉니다.\n")
             if config.FROZEN and sys.platform == "win32":
                 try:
-                    self.install_update(latest)
+                    self.install_update(latest, dialog)
                     return
                 except Exception as e:
                     print(f"❌ 자동 업데이트 실패: {e}\n")
@@ -828,7 +962,7 @@ class App:
         finally:
             self.update_lock.release()
 
-    def download_new(self, new):
+    def download_new(self, new, dialog=None):
         """Download the new .exe completely (3 tries); checks the size against what the server said."""
         last = None
         for attempt in range(3):
@@ -836,9 +970,13 @@ class App:
                 with requests.get(DOWNLOAD_URL, stream=True, timeout=120, headers={"Cache-Control": "no-cache"}) as r:
                     r.raise_for_status()
                     expected = int(r.headers.get("Content-Length") or 0)
+                    done = 0
                     with open(new, "wb") as f:
                         for chunk in r.iter_content(1 << 20):
                             f.write(chunk)
+                            done += len(chunk)
+                            if dialog and expected:
+                                dialog.progress(done, expected)
                 size = new.stat().st_size
                 if size >= 5_000_000 and (not expected or size == expected):
                     return
@@ -850,10 +988,15 @@ class App:
         new.unlink(missing_ok=True)
         raise RuntimeError(last or "다운로드 실패")
 
-    def install_update(self, version):
+    def install_update(self, version, dialog=None):
         exe = Path(sys.executable)
         new = exe.with_name(exe.name + ".new")
-        self.download_new(new)
+        if dialog:
+            dialog.say(f"⬇ 새 버전 {version} 받는 중...")
+        self.download_new(new, dialog)
+        if dialog:
+            dialog.say("✅ 다 받았어요. 앱을 새 버전으로 바꾸고 다시 켭니다..." if not self.round_lock.locked() else
+                       "글을 올리는 중이라, 끝나는 대로 새 버전으로 바꾸고 다시 켭니다.")
         log = config.DATA_DIR / "update.log"
         with self.round_lock:  # never cut off a post halfway
             running = ",".join(a for a, p in self.panels.items() if p.auto_on())

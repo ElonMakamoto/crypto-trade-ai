@@ -5,6 +5,12 @@
 
 - 직접 받기: [NaverBlogAuto.exe](https://github.com/ElonMakamoto/crypto-trade-ai/releases/download/naver-blog-auto-latest/NaverBlogAuto.exe) (`main`에 머지되면 자동으로 빌드됩니다)
 
+## 화면
+
+- 계정마다 위쪽 **탭**이 하나씩 있습니다. **➕ 계정 추가**로 최대 6개까지 넣을 수 있고, 계정 1이 아닌 계정은 **🗑 계정 빼기**로 목록에서 뺄 수 있습니다 (로그인·설정·기록은 남아 있어서 다시 추가하면 그대로 돌아옵니다).
+- 오른쪽 위 **⚫ 블랙 · 🟢 그린 · ⚪ 화이트**로 배경을 바꿉니다 (저장됨).
+- **⬆ 업데이트** 버튼: 누르면 새 버전을 확인해서 바로 받고(진행 막대) 다시 켭니다. 이미 최신이면 **다시 설치**도 할 수 있습니다.
+
 ## 사용 방법
 
 1. `NaverBlogAuto.exe`를 실행합니다. "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누르세요.
