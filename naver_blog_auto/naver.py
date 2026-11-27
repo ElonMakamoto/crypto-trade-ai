@@ -15,6 +15,11 @@ from pathlib import Path
 
 import config
 
+if config.FROZEN and "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
+    # inside the packaged program Playwright would keep its own Chromium in the temporary unpack folder (gone after
+    # every run); keep it next to the settings instead, so it is downloaded only once
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(config.DATA_DIR / "browsers")
+
 LOGIN_URL = "https://nid.naver.com/nidlogin.login?mode=form&url=https%3A%2F%2Fblog.naver.com%2FMyBlog.naver"
 MY_BLOG = "https://blog.naver.com/MyBlog.naver"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
