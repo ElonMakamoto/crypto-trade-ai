@@ -12,9 +12,13 @@ from pathlib import Path
 FROZEN = getattr(sys, "frozen", False)
 # read-only files bundled with the app (fonts, the writing skill)
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
-# writable files: %APPDATA%\NaverBlogAuto for the .exe, ./data when run from source
-if FROZEN:
+# writable files: %APPDATA%\NaverBlogAuto for the Windows .exe, ~/.local/share/NaverBlogAuto for the Linux
+# program, ./data when run from source
+WINDOWS = sys.platform == "win32"
+if FROZEN and WINDOWS:
     DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / "NaverBlogAuto"
+elif FROZEN:
+    DATA_DIR = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "NaverBlogAuto"
 else:
     DATA_DIR = Path(os.environ.get("NAVER_BLOG_AUTO_HOME") or Path(__file__).parent / "data")
 
@@ -72,7 +76,8 @@ COMMON_DEFAULTS = {
     "GEMINI_MODEL": "gemini-2.5-flash",
     "PIXABAY_API_KEY": "",
     "PEXELS_API_KEY": "",
-    "BROWSER": "msedge",  # msedge (built into Windows) or chrome
+    # msedge (built into Windows), chrome, or chromium (Playwright's own browser; installed by the app if needed)
+    "BROWSER": "msedge" if sys.platform == "win32" else "chrome",
     "SHOW_BROWSER": "1",  # show the browser window while posting (recommended)
     "THEME": "white",  # black / green / white
     # {app category: Naver blog category name} as JSON; empty entries fall back to LOVE[...]["naver"] / the AI
@@ -191,6 +196,8 @@ def _write(data):
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = SETTINGS_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    if not WINDOWS:
+        os.chmod(tmp, 0o600)  # keys are not encrypted on Linux: keep the file private to this user
     os.replace(tmp, SETTINGS_FILE)
 
 

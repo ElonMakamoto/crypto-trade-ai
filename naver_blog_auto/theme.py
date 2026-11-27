@@ -25,8 +25,30 @@ THEMES = {
 STATUS = {"#0a7d33": "good", "#666": "sub", "#c06000": "warn", "#c00000": "bad"}
 
 
+KOREAN_FONTS = ("Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR", "NanumGothic", "NanumBarunGothic",
+                "Nanum Gothic", "UnDotum", "Baekmuk Gulim", "Apple SD Gothic Neo")
+_family = None
+
+
 def font_family():
-    return "Malgun Gothic" if sys.platform == "win32" else "TkDefaultFont"
+    """A font that shows Korean on this system (Malgun Gothic on Windows, Noto/Nanum on Linux)."""
+    global _family
+    if _family is None:
+        if sys.platform == "win32":
+            _family = "Malgun Gothic"
+        else:
+            try:
+                from tkinter import font as tkfont
+
+                have = set(tkfont.families())
+                _family = next((f for f in KOREAN_FONTS if f in have), "TkDefaultFont")
+            except Exception:  # no Tk root yet
+                return "TkDefaultFont"
+    return _family
+
+
+def mono_family():
+    return "Consolas" if sys.platform == "win32" else font_family()
 
 
 def palette(name):

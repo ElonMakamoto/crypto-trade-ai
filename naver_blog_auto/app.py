@@ -29,7 +29,7 @@ import timeslots
 APP_NAME = "Naver Blog Auto"
 REPO = "ElonMakamoto/crypto-trade-ai"
 RELEASE_TAG = "naver-blog-auto-latest"
-EXE_NAME = "NaverBlogAuto.exe"
+EXE_NAME = "NaverBlogAuto.exe" if sys.platform == "win32" else "NaverBlogAuto-linux"
 DOWNLOAD_URL = f"https://github.com/{REPO}/releases/download/{RELEASE_TAG}/{EXE_NAME}"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 UPDATE_CHECK_MS = 1 * 3600 * 1000  # check GitHub for a new build every hour
@@ -120,15 +120,16 @@ class CommonSettings:
              ttk.Button(f, text="발급", command=lambda: webbrowser.open("https://pixabay.com/api/docs/")))
         line("Pexels API 키 (선택)", ttk.Entry(f, textvariable=self.vars["PEXELS_API_KEY"], show="•", width=46),
              ttk.Button(f, text="발급", command=lambda: webbrowser.open("https://www.pexels.com/api/")))
-        browsers = {"msedge": "Microsoft Edge (Windows 기본)", "chrome": "Google Chrome"}
+        browsers = {"msedge": "Microsoft Edge (Windows 기본)", "chrome": "Google Chrome",
+                    "chromium": "Chromium (없으면 앱이 자동으로 받음)"}
         self.browser_box = ttk.Combobox(f, values=list(browsers.values()), state="readonly", width=44)
-        self.browser_box.set(browsers.get(values["BROWSER"], browsers["msedge"]))
+        self.browser_box.set(browsers.get(values["BROWSER"], browsers["chrome"]))
         self.browsers = browsers
         line("브라우저", self.browser_box)
         ttk.Checkbutton(f, text="글 올릴 때 브라우저 창 보이기 (권장)", variable=self.show).grid(
             row=row, column=1, sticky="w", pady=4)
         row += 1
-        ttk.Checkbutton(f, text="Windows 시작할 때 자동 실행 + 자동 업로드 시작", variable=self.startup).grid(
+        ttk.Checkbutton(f, text="컴퓨터 시작할 때 자동 실행 + 자동 업로드 시작", variable=self.startup).grid(
             row=row, column=1, sticky="w", pady=4)
         row += 1
         ttk.Label(f, text="무료 Google 키로 글을 씁니다. 사진은 AI 그림이 안 되는 키면 무료 사진(Pixabay/Pexels 키) 또는\n"
@@ -383,7 +384,7 @@ class AccountPanel:
         self._build_settings(self.tabs, values)
         self._build_keywords(self.tabs, values)
         log_tab = ttk.Frame(self.tabs, padding=4)
-        self.log = scrolledtext.ScrolledText(log_tab, height=16, state="disabled", font=("Consolas", 9), wrap="word")
+        self.log = scrolledtext.ScrolledText(log_tab, height=16, state="disabled", font=(theme.mono_family(), 9), wrap="word")
         self.log.pack(fill="both", expand=True)
         self.app.register_text(self.log, mono=True)
         self.tabs.add(log_tab, text="📜 진행 기록")
@@ -460,7 +461,7 @@ class AccountPanel:
         tab = ttk.Frame(tabs, padding=8)
         tabs.add(tab, text="🔑 키워드·메모")
         ttk.Label(tab, text="키워드 목록 — 한 줄에 하나, 위에서부터 씁니다 (이미 쓴 키워드는 건너뜀)").pack(anchor="w")
-        self.kw_text = tk.Text(tab, height=7, wrap="none", font=("Malgun Gothic", 10))
+        self.kw_text = tk.Text(tab, height=7, wrap="none", font=(theme.font_family(), 10))
         self.kw_text.insert("1.0", values["KEYWORDS"])
         self.app.register_text(self.kw_text)
         self.kw_text.pack(fill="x", pady=(2, 4))
@@ -468,7 +469,7 @@ class AccountPanel:
                         variable=self.auto_kw).pack(anchor="w")
         ttk.Label(tab, text="내 메모 — 실제 경험·가게 정보·내가 아는 사실 (AI는 경험담을 이 메모에서만 씁니다)").pack(
             anchor="w", pady=(8, 0))
-        self.memo_text = tk.Text(tab, height=4, wrap="word", font=("Malgun Gothic", 10))
+        self.memo_text = tk.Text(tab, height=4, wrap="word", font=(theme.font_family(), 10))
         self.memo_text.insert("1.0", values["MEMO"])
         self.app.register_text(self.memo_text)
         self.memo_text.pack(fill="x", pady=(2, 4))
@@ -847,9 +848,12 @@ class App:
         config.remove_account(aid)
 
     # ----- Windows startup
+    AUTOSTART = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "autostart" / \
+        "naver-blog-auto.desktop"
+
     def startup_enabled(self):
         if sys.platform != "win32":
-            return False
+            return self.AUTOSTART.exists()
         import winreg
 
         try:
@@ -862,9 +866,18 @@ class App:
     def set_startup(self, enabled):
         if enabled == self.startup_enabled():
             return
-        if sys.platform != "win32" or not config.FROZEN:
+        if not config.FROZEN:
             if enabled:
-                print("Windows 시작 시 자동 실행은 Windows용 .exe에서만 동작합니다.\n")
+                print("컴퓨터 시작 시 자동 실행은 내려받은 프로그램에서만 동작합니다.\n")
+            return
+        if sys.platform != "win32":  # Linux desktops: an autostart entry
+            if enabled:
+                self.AUTOSTART.parent.mkdir(parents=True, exist_ok=True)
+                self.AUTOSTART.write_text("[Desktop Entry]\nType=Application\nName=Naver Blog Auto\n"
+                                          f'Exec="{sys.executable}" --autostart\nX-GNOME-Autostart-enabled=true\n',
+                                          encoding="utf-8")
+            else:
+                self.AUTOSTART.unlink(missing_ok=True)
             return
         import winreg
 
@@ -941,7 +954,8 @@ class App:
         try:
             current = app_version()
             if current == "dev":
-                return tell("개발 버전(소스 실행)이라 자동 업데이트는 .exe에서만 동작해요.")
+                return tell("개발 버전(소스 실행)이라 자동 업데이트는 내려받은 프로그램에서만 동작해요. "
+                            "소스는 git pull 로 업데이트하세요.")
             latest, error = self.latest_version()
             if not latest:
                 print(f"(업데이트 확인 실패: {error})\n")
@@ -951,7 +965,7 @@ class App:
             if latest == current and not force:
                 return tell(f"✅ 최신 버전이에요 (버전 {current}).", reinstall=config.FROZEN)
             print(f"⬆ 새 버전 {latest}을(를) 받아요 (지금 {current}). 올리는 중인 글이 있으면 끝난 뒤에 바꿉니다.\n")
-            if config.FROZEN and sys.platform == "win32":
+            if config.FROZEN:
                 try:
                     self.install_update(latest, dialog)
                     return
@@ -998,6 +1012,19 @@ class App:
             dialog.say("✅ 다 받았어요. 앱을 새 버전으로 바꾸고 다시 켭니다..." if not self.round_lock.locked() else
                        "글을 올리는 중이라, 끝나는 대로 새 버전으로 바꾸고 다시 켭니다.")
         log = config.DATA_DIR / "update.log"
+        if sys.platform != "win32":
+            # Linux: a running program file can be replaced directly, then the app restarts itself
+            with self.round_lock:
+                running = ",".join(a for a, p in self.panels.items() if p.auto_on())
+                os.chmod(new, 0o755)
+                os.replace(new, exe)
+                log.write_text(f"ok {version}", encoding="utf-8")
+                print("⬆ 새 버전으로 다시 시작합니다...\n")
+                for panel in self.panels.values():
+                    panel.stop_event.set()
+                args = [str(exe)] + (["--resume-auto=" + running] if running else [])
+                self.root.after(500, lambda: os.execv(str(exe), args))
+            return
         with self.round_lock:  # never cut off a post halfway
             running = ",".join(a for a, p in self.panels.items() if p.auto_on())
             pid = os.getppid()  # the onefile bootloader holds the .exe open until we exit
@@ -1063,6 +1090,25 @@ class App:
         self.root.destroy()
 
 
+def ensure_korean_font():
+    """Linux: if the system has no Korean font, install the bundled Noto Sans KR for this user (Tk shows boxes
+    instead of Korean otherwise)."""
+    try:
+        out = subprocess.run(["fc-list", ":lang=ko", "family"], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return
+    if out.strip():
+        return
+    target = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "fonts"
+    source = config.FONTS_DIR / "NotoSansKR-Variable.ttf"
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        (target / source.name).write_bytes(source.read_bytes())
+        subprocess.run(["fc-cache", "-f", str(target)], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def run():
     if "--selftest" in sys.argv:
         import selftest
@@ -1076,7 +1122,13 @@ def run():
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("NaverBlogAuto.App")
         except (AttributeError, OSError):
             pass
-    root = tk.Tk()
+    if sys.platform != "win32":
+        ensure_korean_font()
+    try:
+        root = tk.Tk()
+    except tk.TclError as e:
+        sys.exit(f"화면(데스크톱)이 없어서 창을 열 수 없어요: {e}\n"
+                 "데스크톱에서 실행하거나, 서버에서는 python main.py --account a 처럼 명령줄로 쓰세요.")
     try:
         if sys.platform == "win32" and (config.BASE_DIR / "icon.ico").exists():
             root.iconbitmap(default=str(config.BASE_DIR / "icon.ico"))
