@@ -1,6 +1,6 @@
 # naver_blog_auto
 
-네이버 블로그 **계정 2개**에 한국어 SEO 글을 자동으로 써서 올리는 **Windows 앱**입니다.
+네이버 블로그 **여러 계정**에 한국어 글을 자동으로 써서 올리는 **Windows · Linux 앱**입니다.
 계정마다 **네이버에 한 번만 로그인해 두면**, 그 다음부터는 앱이 정해진 시간에 알아서 키워드를 고르고, 네이버·구글 연관검색어를 모아 넣고, 사진 4~6장과 함께 발행합니다. 글은 **무료 Google API 키(Gemini)** 로 씁니다.
 
 - 직접 받기: [NaverBlogAuto.exe](https://github.com/ElonMakamoto/crypto-trade-ai/releases/download/naver-blog-auto-latest/NaverBlogAuto.exe) (`main`에 머지되면 자동으로 빌드됩니다)
@@ -10,6 +10,17 @@
 - 계정마다 위쪽 **탭**이 하나씩 있습니다. **➕ 계정 추가**로 최대 6개까지 넣을 수 있고, 계정 1이 아닌 계정은 **🗑 계정 빼기**로 목록에서 뺄 수 있습니다 (로그인·설정·기록은 남아 있어서 다시 추가하면 그대로 돌아옵니다).
 - 오른쪽 위 **⚫ 블랙 · 🟢 그린 · ⚪ 화이트**로 배경을 바꿉니다 (저장됨).
 - **⬆ 업데이트** 버튼: 누르면 새 버전을 확인해서 바로 받고(진행 막대) 다시 켭니다. 이미 최신이면 **다시 설치**도 할 수 있습니다.
+
+## Linux에서 쓰기
+
+- **프로그램 받기**: [NaverBlogAuto-linux](https://github.com/ElonMakamoto/crypto-trade-ai/releases/download/naver-blog-auto-latest/NaverBlogAuto-linux)를 받아서
+  `chmod +x NaverBlogAuto-linux` 후 `./NaverBlogAuto-linux` 로 실행합니다 (Ubuntu 22.04 이상과 비슷한 배포판).
+- **소스로 실행**: `naver_blog_auto/run_linux.sh` — 처음 한 번 필요한 것을 설치하고 앱을 켭니다 (`python3-tk`, `python3-venv` 필요).
+- 글쓰기 브라우저는 Chrome → Edge → Chromium 순서로 찾고, 셋 다 없으면 Chromium을 처음 한 번 자동으로 받습니다.
+- 한글 글꼴이 없는 시스템이면 앱에 들어 있는 Noto Sans KR을 사용자 글꼴 폴더에 설치합니다.
+- 설정·로그인·결과는 `~/.local/share/NaverBlogAuto/`에 저장됩니다 (Linux에는 DPAPI가 없어서 API 키는 암호화 대신 본인만 읽을 수 있는 파일 권한으로 보호합니다).
+- **⬆ 업데이트** 버튼과 1시간마다 자동 업데이트, **컴퓨터 시작할 때 자동 실행**(데스크톱 자동 시작 항목)도 Windows와 똑같이 동작합니다.
+- 화면(데스크톱)이 없는 서버에서는 창 대신 `python main.py --account a` 같은 명령줄로 쓸 수 있습니다 (브라우저는 숨겨서 실행).
 
 ## 사용 방법
 

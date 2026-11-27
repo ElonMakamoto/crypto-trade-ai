@@ -7,3 +7,4 @@ dist/
 *.spec
 __pycache__/
 selftest.txt
+.venv/

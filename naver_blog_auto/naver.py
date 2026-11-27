@@ -9,10 +9,16 @@ checked (did the text/images really appear?) and falls back to another way of do
 """
 import os
 import re
+import sys
 import time
 from pathlib import Path
 
 import config
+
+if config.FROZEN and "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
+    # inside the packaged program Playwright would keep its own Chromium in the temporary unpack folder (gone after
+    # every run); keep it next to the settings instead, so it is downloaded only once
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(config.DATA_DIR / "browsers")
 
 LOGIN_URL = "https://nid.naver.com/nidlogin.login?mode=form&url=https%3A%2F%2Fblog.naver.com%2FMyBlog.naver"
 MY_BLOG = "https://blog.naver.com/MyBlog.naver"
@@ -61,8 +67,37 @@ def _browser_kwargs(aid, headless):
     if exe:
         kwargs["executable_path"] = exe
     else:
-        kwargs["channel"] = common.get("BROWSER") or "msedge"
+        kwargs["channel"] = common.get("BROWSER") or default_browser()
     return kwargs
+
+
+def default_browser():
+    return "msedge" if sys.platform == "win32" else "chrome"
+
+
+def browser_order(first):
+    """Browsers to try: the chosen one, the other installed ones, then Playwright's own Chromium (None)."""
+    order = [first] + [c for c in ("msedge", "chrome") if c != first] + [None]
+    return [c if c != "chromium" else None for c in dict.fromkeys(order)]
+
+
+def has_display():
+    return sys.platform == "win32" or bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def install_chromium():
+    """Download Playwright's own Chromium (for PCs with neither Edge nor Chrome, e.g. many Linux systems)."""
+    import subprocess
+
+    from playwright._impl._driver import compute_driver_executable, get_driver_env
+
+    print("🌐 Edge/Chrome이 없어서 글쓰기용 브라우저(Chromium)를 한 번 받아요 (약 150MB, 몇 분)...")
+    driver = compute_driver_executable()
+    cmd = list(driver) if isinstance(driver, (list, tuple)) else [str(driver)]
+    result = subprocess.run(cmd + ["install", "chromium"], env=get_driver_env(), capture_output=True, text=True)
+    if result.returncode != 0:
+        raise EditorError("브라우저를 받지 못했어요: " + (result.stderr or result.stdout)[-300:])
+    print("✔ 브라우저 준비 완료")
 
 
 class Session:
@@ -81,21 +116,28 @@ class Session:
         self.pw = sync_playwright().start()
         kwargs = _browser_kwargs(self.aid, self.headless)
         tried = []
-        for channel in ([kwargs.get("channel")] + [c for c in ("msedge", "chrome") if c != kwargs.get("channel")]
-                        if "channel" in kwargs else [None]):
-            if channel:
-                kwargs["channel"] = channel
-            try:
-                self.ctx = self.pw.chromium.launch_persistent_context(**kwargs)
+        if not has_display():
+            kwargs["headless"] = True  # Linux without a desktop (server): run the browser hidden
+        channels = browser_order(kwargs.pop("channel")) if "channel" in kwargs else [None]
+        installed = False
+        while not self.ctx:
+            for channel in channels:
+                args = dict(kwargs, channel=channel) if channel else kwargs
+                try:
+                    self.ctx = self.pw.chromium.launch_persistent_context(**args)
+                    break
+                except Error as e:
+                    tried.append(f"{channel or 'chromium'}: {str(e).splitlines()[0][:160]}")
+                    if "user data directory is already in use" in str(e).lower() or "processsingleton" in str(e).lower():
+                        self.pw.stop()
+                        raise EditorError("이 계정의 브라우저가 이미 열려 있어요. 열린 창을 닫고 다시 해 주세요.")
+            if self.ctx or installed or os.environ.get("NAVER_BROWSER_PATH"):
                 break
-            except Error as e:
-                tried.append(f"{channel}: {str(e).splitlines()[0][:160]}")
-                if "user data directory is already in use" in str(e).lower() or "processsingleton" in str(e).lower():
-                    self.pw.stop()
-                    raise EditorError("이 계정의 브라우저가 이미 열려 있어요. 열린 창을 닫고 다시 해 주세요.")
+            install_chromium()  # nothing found: get Playwright's own Chromium once, then try it
+            installed, channels = True, [None]
         if not self.ctx:
             self.pw.stop()
-            raise EditorError("브라우저(Edge/Chrome)를 열지 못했어요: " + " / ".join(tried))
+            raise EditorError("브라우저(Edge/Chrome/Chromium)를 열지 못했어요: " + " / ".join(tried))
         try:
             self.ctx.grant_permissions(["clipboard-read", "clipboard-write"], origin="https://blog.naver.com")
         except Error:
@@ -699,16 +741,22 @@ def browser_news_links(query, limit=10):
     from playwright.sync_api import Error, sync_playwright
     from urllib.parse import quote
 
-    channel = config.load_common().get("BROWSER") or "msedge"
+    channel = config.load_common().get("BROWSER") or default_browser()
     links = []
     try:
         with sync_playwright() as pw:
-            kwargs = {"headless": True}
+            browser = None
             if os.environ.get("NAVER_BROWSER_PATH"):
-                kwargs["executable_path"] = os.environ["NAVER_BROWSER_PATH"]
-            else:
-                kwargs["channel"] = channel
-            browser = pw.chromium.launch(**kwargs)
+                browser = pw.chromium.launch(headless=True, executable_path=os.environ["NAVER_BROWSER_PATH"])
+            for ch in browser_order(channel):
+                if browser:
+                    break
+                try:
+                    browser = pw.chromium.launch(headless=True, **({"channel": ch} if ch else {}))
+                except Error:
+                    continue
+            if not browser:
+                raise EditorError("브라우저를 찾지 못했어요")
             page = browser.new_page(user_agent=UA, locale="ko-KR")
             for url in (f"https://search.naver.com/search.naver?where=news&sort=1&query={quote(query)}",
                         f"https://search.daum.net/search?w=news&sort=recency&q={quote(query)}"):
